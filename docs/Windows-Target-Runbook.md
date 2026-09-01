@@ -86,14 +86,14 @@ part, and usually brings it under a minute:
 .\Invoke-EvidenceCollection.ps1 Administrator@win-fs01 -NoExe
 ```
 
-Results land in `%USERPROFILE%\SWEvidence\<timestamp>` — deliberately outside this folder, so evidence never sits in the repo.
+Results land in `C:\SWEvidence\<timestamp>` — deliberately outside this folder, so evidence never sits in the repo, and outside your user folder, so the path carries no account name.
 
 ---
 
 ## Step 5 — Check it worked
 
 ```powershell
-Import-Csv $env:USERPROFILE\SWEvidence\*\_logs\collection-manifest_*.csv |
+Import-Csv C:\SWEvidence\*\_logs\collection-manifest_*.csv |
   Format-Table Target,Status,Privileged,Products,Note -AutoSize
 ```
 
@@ -106,9 +106,9 @@ Import-Csv $env:USERPROFILE\SWEvidence\*\_logs\collection-manifest_*.csv |
 Then hash the files, before they move anywhere:
 
 ```powershell
-Get-ChildItem $env:USERPROFILE\SWEvidence -File -Recurse -Exclude hashes_*.csv |
+Get-ChildItem C:\SWEvidence -File -Recurse -Exclude hashes_*.csv |
   Get-FileHash -Algorithm SHA256 |
-  Export-Csv "$env:USERPROFILE\SWEvidence\hashes_$(Get-Date -f yyyyMMdd-HHmmss).csv" -NoTypeInformation
+  Export-Csv "C:\SWEvidence\hashes_$(Get-Date -f yyyyMMdd-HHmmss).csv" -NoTypeInformation
 ```
 
 ---
@@ -186,7 +186,7 @@ Collect by hand instead:
 1. Copy the `collectors\windows\` folder to the machine.
 2. Right-click `Get-SoftwareEvidence.bat` → **Run as administrator**.
 3. Output appears on the Desktop. Copy it back to your machine and drop it into the
-   run folder under `%USERPROFILE%\SWEvidence\`.
+   run folder under `C:\SWEvidence\`.
 
 The `.bat` automatically uses the VBScript collector on machines with no PowerShell.
 

@@ -128,10 +128,13 @@ run, not permanently.
 
 ## Output
 
-Everything for a run lands in one flat directory — `%USERPROFILE%\SWEvidence\<timestamp>`
-unless you pass `-OutputRoot`. That default is deliberately **outside this repository**,
-so collected evidence is never sitting in a git working tree, and outside Desktop and
-Documents, which OneDrive redirects and would sync to a personal cloud account:
+Everything for a run lands in one flat directory — `C:\SWEvidence\<timestamp>` unless you
+pass `-OutputRoot`. Three things that default is deliberately **not**: not this
+repository, so evidence is never sitting in a git working tree; not Desktop or Documents,
+which OneDrive redirects and would sync to a personal cloud account; and not the user
+profile, so the path carries no account name into screenshots or anything handed to an
+assessor. If the drive root can't be written to, the run falls back to
+`%USERPROFILE%\SWEvidence\<timestamp>` and says so:
 
 ```
 SWEvidence_20260831-140102\

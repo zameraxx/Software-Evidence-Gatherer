@@ -59,10 +59,16 @@
   Force every target to a platform instead of probing: Windows or Linux. Default Auto.
 
 .PARAMETER OutputRoot
-  Local directory to write evidence into. Defaults to %USERPROFILE%\SWEvidence\<timestamp>
-  - deliberately outside this repository, so collected evidence is never sitting in a git
-  working tree, and outside Desktop/Documents, which OneDrive redirects and would sync to
-  a personal cloud account.
+  Local directory to write evidence into. Defaults to %SystemDrive%\SWEvidence\<timestamp>
+  - typically C:\SWEvidence\<timestamp>. That location is deliberate: outside this
+  repository, so evidence is never sitting in a git working tree; outside Desktop and
+  Documents, which OneDrive redirects and would sync to a personal cloud account; and
+  outside the user profile, so the path carries no account name into screenshots or
+  anything handed to an assessor.
+
+  If the drive root cannot be written to, the run falls back to
+  %USERPROFILE%\SWEvidence\<timestamp> and says so. An -OutputRoot you pass explicitly is
+  never redirected - it fails instead.
 
   Point several runs at the same directory to accumulate a fleet - the collectors stamp
   every filename with host and timestamp, so files from different hosts and different runs
@@ -217,16 +223,21 @@ $LegacyCollector  = Join-Path $ScriptDir 'collectors\windows\Get-SoftwareEvidenc
 
 $RunStamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
 
-# Default output goes under the user profile, NOT the current directory. The runbooks
-# have you cd into this repo before running, so a current-directory default drops
-# collected evidence - hostnames, serial numbers, installed software, account lists -
-# straight into a git working tree, one "git add -A" away from being published. The
-# .gitignore also covers that, but the fix belongs here: don't put it there at all.
+# Where evidence lands by default, and the three places it deliberately does NOT:
 #
-# The profile root specifically, rather than Desktop or Documents: OneDrive's Known
-# Folder Move redirects those two, which would silently sync a host's inventory to a
-# personal cloud account. It does not touch the profile root.
-if (-not $OutputRoot) { $OutputRoot = Join-Path $env:USERPROFILE "SWEvidence\$RunStamp" }
+#   not the current directory - the runbooks have you cd into this repo before running,
+#     so that default drops hostnames, serial numbers, installed software and account
+#     lists straight into a git working tree, one "git add -A" from being published;
+#   not Desktop or Documents - OneDrive's Known Folder Move redirects both, which would
+#     silently sync a collected host inventory to a personal cloud account;
+#   not the user profile - the resulting path carries the operator's account name, which
+#     then shows up in screenshots, transcripts and anything handed to an assessor.
+#
+# %SystemDrive%\SWEvidence is none of those: neutral, identical on every machine, and
+# writable without elevation (the default Windows ACL lets a standard user create
+# folders at the drive root).
+$OutputRootWasSpecified = [bool]$OutputRoot
+if (-not $OutputRoot) { $OutputRoot = Join-Path $env:SystemDrive "SWEvidence\$RunStamp" }
 
 # ============================================================================
 # 1. console output
@@ -1086,7 +1097,23 @@ foreach ($c in @($LinuxCollector, $WindowsCollector, $LegacyCollector)) {
 }
 
 $targets = Get-TargetList
-New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
+
+# A hardened build can restrict the drive root. Rather than refuse to collect over a
+# directory-creation failure, fall back to the profile and say so - the path is printed
+# either way, so the operator always knows where the evidence went. An -OutputRoot the
+# caller asked for explicitly is never silently redirected; that one fails loudly.
+try {
+    New-Item -ItemType Directory -Path $OutputRoot -Force -ErrorAction Stop | Out-Null
+} catch {
+    if ($OutputRootWasSpecified) {
+        throw "Cannot create the output directory '$OutputRoot': $($_.Exception.Message)"
+    }
+    $fallback = Join-Path $env:USERPROFILE "SWEvidence\$RunStamp"
+    Write-Warning ("Could not create $OutputRoot ($($_.Exception.Message)). " +
+                   "Falling back to $fallback - note that this path contains your account name.")
+    $OutputRoot = $fallback
+    New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
+}
 $OutputRoot = (Resolve-Path -LiteralPath $OutputRoot).Path
 $logDir = Join-Path $OutputRoot '_logs'
 New-Item -ItemType Directory -Path $logDir -Force | Out-Null
