@@ -153,6 +153,7 @@ Add any of these to the Step 4 command.
 | `-Baseline .\approved.csv` | Flag installed packages that aren't on your approved list |
 | `-KeepRemote` | Don't delete the temp folder on the target (useful the first time) |
 | `-AcceptHostKeys` | Auto-trust unknown hosts — replaces the host-key part of Step 2 |
+| `-UserName svc-audit` | Login account for targets written as a bare hostname. **No default** — a target with neither is an error |
 | `-LegacyCrypto` | Needed for RHEL 2.1 and RHEL 4 — see below |
 
 Full list: `Get-Help .\Invoke-EvidenceCollection.ps1 -Full`

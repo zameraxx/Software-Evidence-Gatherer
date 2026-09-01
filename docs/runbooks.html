@@ -578,6 +578,15 @@ Set-Service -Name sshd -StartupType Automatic</pre>
               <strong>incomplete</strong> — it can't read the registry of users who aren't
               logged on.
             </p>
+            <div class="note">
+              <span class="tag">Undoing this later</span>
+              <p>
+                Everything in this step persists after the collection ends — the SSH server,
+                the admin rights, the key. <code>docs\Target-Host-Restoration.md</code> walks
+                each one back, and says how to tell what was already there before you arrived.
+              </p>
+            </div>
+
             <div class="note warn">
               <span class="tag">Windows 2000, XP, or Server 2003?</span>
               <p>They have no SSH server. Skip to <a href="#wr3">Old Windows</a> in the reference below.</p>
@@ -689,6 +698,7 @@ Set-Service -Name sshd -StartupType Automatic</pre>
                   <tr><td><code>-HostList .\hosts.txt</code></td><td>Collect from many hosts instead of one</td></tr>
                   <tr><td><code>-KeepRemote</code></td><td>Don't delete the temp folder on the target — useful the first time</td></tr>
                   <tr><td><code>-AcceptHostKeys</code></td><td>Auto-trust unknown hosts — replaces step 3 for a big sweep</td></tr>
+                  <tr><td><code>-UserName svc-audit</code></td><td>Login account for targets written as a bare hostname. <strong>No default</strong> — a target with neither is an error</td></tr>
                   <tr><td><code>-Platform Windows</code></td><td>Skip OS detection</td></tr>
                 </tbody>
               </table>
@@ -900,6 +910,13 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass</pre>
               Without root the collection still runs — it just can't read other users' scheduled
               tasks or parts of the package database, and it says so in the output.
             </p>
+            <div class="note">
+              <span class="tag">Undoing this later</span>
+              <p>
+                If you add an SSH key, or change sudoers to get past a <code>requiretty</code>
+                error, <code>docs\Target-Host-Restoration.md</code> walks it back.
+              </p>
+            </div>
           </div>
         </article>
 
@@ -995,6 +1012,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass</pre>
                   <tr><td><code>-Baseline .\approved.csv</code></td><td>Flag installed packages that aren't on your approved list</td></tr>
                   <tr><td><code>-KeepRemote</code></td><td>Don't delete the temp folder on the target — useful the first time</td></tr>
                   <tr><td><code>-AcceptHostKeys</code></td><td>Auto-trust unknown hosts</td></tr>
+                  <tr><td><code>-UserName svc-audit</code></td><td>Login account for targets written as a bare hostname. <strong>No default</strong> — a target with neither is an error</td></tr>
                   <tr><td><code>-LegacyCrypto</code></td><td>Needed for RHEL 2.1 and RHEL 4 — see below</td></tr>
                 </tbody>
               </table>
@@ -1117,9 +1135,9 @@ type $env:USERPROFILE\.ssh\evidence_key.pub | ssh root@rhel7-db01 `
 
       <footer>
         <p>
-          The same two runbooks ship in the repository as
+          These runbooks ship in the repository as
           <code>docs\Windows-Target-Runbook.md</code> and
-          <code>docs\Linux-Target-Runbook.md</code>, for use where this page isn't reachable.
+          <code>docs\Linux-Target-Runbook.md</code>, alongside <code>docs\Target-Host-Restoration.md</code> for putting a target back the way you found it — for use where this page isn't reachable.
         </p>
       </footer>
 

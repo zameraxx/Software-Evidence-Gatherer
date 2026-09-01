@@ -141,6 +141,7 @@ Add any of these to the Step 4 command.
 | `-HostList .\hosts.txt` | Collect from many hosts instead of one |
 | `-KeepRemote` | Don't delete the temp folder on the target (useful the first time) |
 | `-AcceptHostKeys` | Auto-trust unknown hosts — replaces Step 3 for a big sweep |
+| `-UserName svc-audit` | Login account for targets written as a bare hostname. **No default** — a target with neither is an error |
 | `-Platform Windows` | Skip OS detection |
 
 Full list: `Get-Help .\Invoke-EvidenceCollection.ps1 -Full`
