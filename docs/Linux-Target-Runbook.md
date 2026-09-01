@@ -10,9 +10,10 @@ Everything is typed on **your Windows machine**.
 | `rhel7-db01` | Your target computer |
 | `root` | The account you log in as on the target |
 
-> Works on **RHEL and CentOS versions 2, 4, 6, 7, and 8 only.** Ubuntu, Debian, SUSE,
-> Fedora, RHEL 5 and RHEL 9+ are not supported and will be skipped. Step 2 checks this
-> for you.
+> [!WARNING]
+> **Supported systems:** RHEL and CentOS versions 2, 4, 6, 7, and 8 only.
+> Ubuntu, Debian, SUSE, Fedora, RHEL 5 and RHEL 9+ are not supported and will
+> be skipped. Step 2 checks this for you.
 
 ---
 
@@ -20,7 +21,7 @@ Everything is typed on **your Windows machine**.
 
 Open PowerShell and run all three:
 
-```powershell
+```powershell PowerShell - your machine
 Get-Command ssh.exe
 Get-ChildItem "C:\Tools\EvidenceGatherer" -Recurse | Unblock-File
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
@@ -36,13 +37,13 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 
 ## Step 2 — Connect once by hand, and check the version
 
-```powershell
+```powershell PowerShell - your machine
 ssh root@rhel7-db01
 ```
 
 Type `yes` to accept the host key and log in. While you're there, check the version:
 
-```bash
+```bash on the target
 cat /etc/redhat-release
 ```
 
@@ -53,8 +54,10 @@ This step covers three things at once: it accepts the host key (so the collectio
 fail with `Host key verification failed`), it proves your credentials work, and it
 confirms the OS is supported.
 
-> **Can't connect at all — error mentions "no matching key exchange" or "no matching host
-> key type"?** That's a very old host. See [Really old hosts](#really-old-hosts-rhel-21--rhel-4).
+> [!WARNING]
+> **Can't connect at all?** If the error mentions "no matching key exchange" or
+> "no matching host key type", that's a very old host. See
+> [Really old hosts](#really-old-hosts-rhel-21--rhel-4).
 
 ---
 
@@ -74,12 +77,13 @@ tasks or parts of the package database, and it says so in the output.
 
 ---
 
+> [!NOTE]
 > **Undoing anything later:** if you add an SSH key, or change sudoers to get past a
 > `requiretty` error, [Target-Host-Restoration.md](Target-Host-Restoration.md) walks it back.
 
 ## Step 4 — Run the collection
 
-```powershell
+```powershell PowerShell - your machine
 cd "C:\Tools\EvidenceGatherer"
 .\Invoke-EvidenceCollection.ps1 root@rhel7-db01
 ```
@@ -88,13 +92,13 @@ Enter the password when prompted. Takes a few minutes.
 
 If you need a sudo password (from Step 3):
 
-```powershell
+```powershell PowerShell - your machine
 .\Invoke-EvidenceCollection.ps1 svc-audit@rhel7-db01 -SudoPassword (Read-Host -AsSecureString "sudo password")
 ```
 
 **Too slow?** Add `-SkipFileScan` to skip the filesystem scans:
 
-```powershell
+```powershell PowerShell - your machine
 .\Invoke-EvidenceCollection.ps1 root@rhel7-db01 -SkipFileScan
 ```
 
@@ -104,7 +108,7 @@ Results land in `C:\SWEvidence\<timestamp>` — deliberately outside this folder
 
 ## Step 5 — Check it worked
 
-```powershell
+```powershell PowerShell - your machine
 Import-Csv C:\SWEvidence\*\_logs\collection-manifest_*.csv |
   Format-Table Target,Status,Privileged,Products,Note -AutoSize
 ```
@@ -117,7 +121,7 @@ Import-Csv C:\SWEvidence\*\_logs\collection-manifest_*.csv |
 
 Then hash the files, before they move anywhere:
 
-```powershell
+```powershell PowerShell - your machine
 Get-ChildItem C:\SWEvidence -File -Recurse -Exclude hashes_*.csv |
   Get-FileHash -Algorithm SHA256 |
   Export-Csv "C:\SWEvidence\hashes_$(Get-Date -f yyyyMMdd-HHmmss).csv" -NoTypeInformation
@@ -162,7 +166,7 @@ Full list: `Get-Help .\Invoke-EvidenceCollection.ps1 -Full`
 
 Put one target per line in a text file (copy `hosts.example.txt`), then:
 
-```powershell
+```powershell PowerShell - your machine
 .\Invoke-EvidenceCollection.ps1 -HostList .\hosts.txt -OutputRoot D:\Evidence\Case-114 -AcceptHostKeys
 ```
 
@@ -174,7 +178,7 @@ gives you a row per host.
 Optional — worth it if you're collecting repeatedly or unattended. There's no
 `ssh-copy-id` on Windows, so install the key with this one-liner:
 
-```powershell
+```powershell PowerShell - your machine
 ssh-keygen -t ed25519 -f $env:USERPROFILE\.ssh\evidence_key
 
 type $env:USERPROFILE\.ssh\evidence_key.pub | ssh root@rhel7-db01 "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cat >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
@@ -194,7 +198,7 @@ Unable to negotiate with 10.0.0.9 port 22: no matching key exchange method found
 
 Add `-LegacyCrypto`:
 
-```powershell
+```powershell PowerShell - your machine
 .\Invoke-EvidenceCollection.ps1 root@as21-hist -LegacyCrypto
 ```
 

@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  Standalone offline copy of the runbooks. Double-click to open in any browser.
+  Identical content to docs\Windows-Target-Runbook.md and docs\Linux-Target-Runbook.md.
+  The Google Fonts link below is the only external request; with no internet the page
+  falls back to system fonts and is otherwise unchanged.
+-->
+<title>Evidence Gatherer Runbooks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+
+<style>
+  /* ---- tokens: light is the base set --------------------------------- */
+  :root {
+    --accent-win:      #1F5FA8;
+    --accent-win-soft: #E4EDF8;
+    --accent-lin:      #A8501E;
+    --accent-lin-soft: #F7E9DF;
+
+    --ground:    #EDF1F4;
+    --surface:   #FFFFFF;
+    --surface-2: #F5F8FA;
+    --ink:       #131A21;
+    --ink-mid:   #3B4855;
+    --ink-dim:   #5F6D7B;
+    --rule:      #D3DBE2;
+    --rule-soft: #E4EAEF;
+
+    --code-bg:   #10151B;
+    --code-ink:  #D6E0EA;
+    --code-dim:  #7E8EA0;
+    --code-rule: #232C36;
+
+    --ok:        #1C6B4E;
+    --ok-soft:   #E1F0E9;
+    --warn:      #8A6410;
+    --warn-soft: #F7EEDA;
+    --stop:      #A32B2B;
+    --stop-soft: #F7E3E3;
+
+    --shadow: 0 1px 2px rgba(19, 26, 33, .05), 0 8px 24px -12px rgba(19, 26, 33, .16);
+
+    --accent:      var(--accent-win);
+    --accent-soft: var(--accent-win-soft);
+  }
+
+  /* The active track drives the accent. Deliberately NOT redefined in the theme
+     blocks below - only the -win/-lin values are, so this one rule keeps working
+     in every theme through the variable indirection. */
+  :root[data-track="linux"] {
+    --accent:      var(--accent-lin);
+    --accent-soft: var(--accent-lin-soft);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --accent-win:      #6BA6EE;
+      --accent-win-soft: #17273A;
+      --accent-lin:      #E29060;
+      --accent-lin-soft: #33210F;
+
+      --ground:    #0D1116;
+      --surface:   #151B22;
+      --surface-2: #1B222B;
+      --ink:       #E2E8EE;
+      --ink-mid:   #B3BFCB;
+      --ink-dim:   #8895A3;
+      --rule:      #28313B;
+      --rule-soft: #1F272F;
+
+      --code-bg:   #080B0F;
+      --code-ink:  #D6E0EA;
+      --code-dim:  #6E7D8E;
+      --code-rule: #1C242D;
+
+      --ok:        #55C295;
+      --ok-soft:   #10261E;
+      --warn:      #D9A93F;
+      --warn-soft: #2A2210;
+      --stop:      #E8807F;
+      --stop-soft: #2E1616;
+
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -12px rgba(0, 0, 0, .7);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --accent-win:      #6BA6EE;
+    --accent-win-soft: #17273A;
+    --accent-lin:      #E29060;
+    --accent-lin-soft: #33210F;
+
+    --ground:    #0D1116;
+    --surface:   #151B22;
+    --surface-2: #1B222B;
+    --ink:       #E2E8EE;
+    --ink-mid:   #B3BFCB;
+    --ink-dim:   #8895A3;
+    --rule:      #28313B;
+    --rule-soft: #1F272F;
+
+    --code-bg:   #080B0F;
+    --code-ink:  #D6E0EA;
+    --code-dim:  #6E7D8E;
+    --code-rule: #1C242D;
+
+    --ok:        #55C295;
+    --ok-soft:   #10261E;
+    --warn:      #D9A93F;
+    --warn-soft: #2A2210;
+    --stop:      #E8807F;
+    --stop-soft: #2E1616;
+
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -12px rgba(0, 0, 0, .7);
+  }
+
+  /* ---- base ---------------------------------------------------------- */
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 16px;
+    line-height: 1.62;
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3 {
+    font-family: Archivo, "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    text-wrap: balance;
+    margin: 0;
+  }
+
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible, button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
+  code, kbd { font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  p code, li code, td code, th code {
+    font-size: .875em;
+    background: var(--surface-2);
+    border: 1px solid var(--rule-soft);
+    border-radius: 4px;
+    padding: .08em .34em;
+    color: var(--ink-mid);
+    word-break: break-word;
+  }
+
+  .wrap { max-width: 1150px; margin: 0 auto; padding: 0 28px 96px; }
+
+  /* ---- masthead ------------------------------------------------------ */
+  header.masthead {
+    padding: 56px 0 28px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .eyebrow::after { content: ""; flex: 1; height: 1px; background: var(--rule); }
+  header.masthead h1 {
+    font-size: clamp(2.1rem, 5.2vw, 3.15rem);
+    font-weight: 800;
+    letter-spacing: -.028em;
+    line-height: 1.04;
+  }
+  .standfirst { font-size: 1.075rem; color: var(--ink-mid); max-width: 64ch; margin: 0; }
+
+  /* ---- track switcher ------------------------------------------------ */
+  .switcher-dock {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--ground);
+    padding: 16px 0 14px;
+    margin-top: 22px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .switcher { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
+  .switcher .label {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    align-self: center;
+    margin-right: 6px;
+  }
+  .track-btn {
+    font-family: Archivo, sans-serif;
+    font-size: .95rem;
+    font-weight: 700;
+    color: var(--ink-mid);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 7px;
+    padding: 9px 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    transition: color .18s, border-color .18s, background .18s;
+  }
+  .track-btn:hover { border-color: var(--ink-dim); }
+  .track-btn .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--ink-dim);
+    transition: background .18s;
+  }
+  .track-btn[aria-selected="true"] {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+  .track-btn[aria-selected="true"] .dot { background: var(--accent); }
+
+  /* ---- layout -------------------------------------------------------- */
+  .layout {
+    display: grid;
+    grid-template-columns: 200px minmax(0, 1fr);
+    gap: 48px;
+    align-items: start;
+    margin-top: 38px;
+  }
+  nav.rail { position: sticky; top: 88px; }
+  nav.rail .rail-title {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 10.5px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    margin-bottom: 10px;
+  }
+  nav.rail ul { list-style: none; margin: 0 0 18px; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+  nav.rail a {
+    display: flex;
+    gap: 10px;
+    font-size: .845rem;
+    line-height: 1.35;
+    color: var(--ink-dim);
+    text-decoration: none;
+    padding: 5px 8px 5px 6px;
+    border-radius: 5px;
+  }
+  nav.rail a:hover { color: var(--accent); background: var(--surface); }
+  nav.rail a .n {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .78rem;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+    width: 1ch;
+  }
+
+  /* ---- steps --------------------------------------------------------- */
+  .step { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 0 20px; padding-bottom: 38px; }
+  /* the spine: a rule joining the markers, because these really are a sequence -
+     doing step 4 before step 2 gets you an incomplete collection */
+  /* Placed explicitly rather than left to auto-placement: the marker spans both rows,
+     and without explicit tracks the body lands in the 42px marker column instead. */
+  .step .marker {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .step h3   { grid-column: 2; grid-row: 1; }
+  .step .body { grid-column: 2; grid-row: 2; }
+  .step .num {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .82rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    width: 30px; height: 30px;
+    display: grid;
+    place-items: center;
+    border-radius: 50%;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    background: var(--accent-soft);
+    flex-shrink: 0;
+  }
+  .step .spine { width: 1px; flex: 1; background: var(--rule); min-height: 12px; }
+  .step:last-of-type .spine { background: transparent; }
+  .step h3 {
+    font-size: 1.28rem;
+    font-weight: 700;
+    letter-spacing: -.018em;
+    line-height: 1.25;
+    padding-top: 2px;
+    scroll-margin-top: 96px;
+  }
+  .step .body, .refsec .body { max-width: 68ch; }
+  .step .body > :first-child { margin-top: 12px; }
+  .step p, .refsec p { margin: 0 0 14px; }
+  .step ul, .step ol, .refsec ul, .refsec ol { margin: 0 0 16px; padding-left: 22px; }
+  .step li, .refsec li { margin-bottom: 7px; }
+  li::marker { color: var(--ink-dim); }
+
+  .lede { font-size: 1.02rem; color: var(--ink-mid); }
+
+  /* ---- reference ----------------------------------------------------- */
+  .ref-divider {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin: 14px 0 34px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+  }
+  .ref-divider::before, .ref-divider::after { content: ""; height: 1px; background: var(--rule); flex: 1; }
+  .refsec { padding: 0 0 34px 62px; }
+  .refsec h3 {
+    font-size: 1.12rem;
+    font-weight: 700;
+    letter-spacing: -.014em;
+    margin-bottom: 4px;
+    scroll-margin-top: 96px;
+  }
+
+  /* ---- code ---------------------------------------------------------- */
+  .cmd {
+    margin: 0 0 18px;
+    background: var(--code-bg);
+    border: 1px solid var(--code-rule);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .cmd .cmd-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 7px 10px 7px 14px;
+    border-bottom: 1px solid var(--code-rule);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: .11em;
+    text-transform: uppercase;
+    color: var(--code-dim);
+  }
+  .cmd pre {
+    margin: 0;
+    padding: 14px;
+    overflow-x: auto;
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .85rem;
+    line-height: 1.65;
+    color: var(--code-ink);
+    tab-size: 2;
+  }
+  .cmd pre .c { color: var(--code-dim); }
+  .copy {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    color: var(--code-dim);
+    background: transparent;
+    border: 1px solid var(--code-rule);
+    border-radius: 5px;
+    padding: 3px 9px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color .15s, border-color .15s;
+  }
+  .copy:hover { color: var(--code-ink); border-color: var(--code-dim); }
+  .copy[data-done="1"] { color: var(--ok); border-color: var(--ok); }
+
+  /* ---- callouts ------------------------------------------------------ */
+  .note {
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    border-radius: 0 8px 8px 0;
+    padding: 14px 18px;
+    margin: 0 0 18px;
+    font-size: .945rem;
+  }
+  .note .tag {
+    display: block;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 5px;
+  }
+  .note p:last-child { margin-bottom: 0; }
+  .note.warn { border-left-color: var(--warn); background: var(--warn-soft); }
+  .note.warn .tag { color: var(--warn); }
+  .note.stop { border-left-color: var(--stop); background: var(--stop-soft); }
+  .note.stop .tag { color: var(--stop); }
+
+  /* ---- tables -------------------------------------------------------- */
+  .tablewrap {
+    overflow-x: auto;
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+    margin: 0 0 18px;
+    background: var(--surface);
+  }
+  table { border-collapse: collapse; width: 100%; font-size: .885rem; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+  th {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--ink-dim);
+    font-weight: 500;
+    background: var(--surface-2);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+
+  .pill {
+    display: inline-block;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: .74rem;
+    padding: 1px 8px;
+    border-radius: 20px;
+    white-space: nowrap;
+  }
+  .pill.ok   { color: var(--ok);   background: var(--ok-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.stop { color: var(--stop); background: var(--stop-soft); }
+
+  /* ---- track sections ------------------------------------------------ */
+  .track[hidden] { display: none; }
+  .track-head { margin-bottom: 32px; padding-bottom: 20px; border-bottom: 1px solid var(--rule); }
+  .track-head h2 { font-size: 1.75rem; font-weight: 800; letter-spacing: -.025em; margin-bottom: 8px; }
+  .track-head p { margin: 0 0 14px; color: var(--ink-mid); max-width: 68ch; }
+  .track-head p:last-child { margin-bottom: 0; }
+
+  .glossary { font-size: .89rem; }
+  .glossary td:first-child { white-space: nowrap; }
+
+  footer {
+    margin-top: 8px;
+    padding-top: 24px;
+    border-top: 1px solid var(--rule);
+    font-size: .87rem;
+    color: var(--ink-dim);
+    max-width: 72ch;
+  }
+  footer p { margin: 0 0 10px; }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+
+  @media (max-width: 900px) {
+    .layout { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    nav.rail { display: none; }
+    .wrap { padding: 0 20px 72px; }
+    header.masthead { padding-top: 40px; }
+    .step { grid-template-columns: 32px minmax(0, 1fr); gap: 0 14px; }
+    .step .num { width: 26px; height: 26px; font-size: .74rem; }
+    .refsec { padding-left: 0; }
+  }
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+
+  <header class="masthead">
+    <div class="eyebrow">Software Evidence Gatherer &middot; Field Procedure</div>
+    <h1>Collecting evidence over SSH</h1>
+    <p class="standfirst">
+      Six steps per target. Pick your platform below — the page follows you. Everything is
+      typed on <strong>your</strong> machine unless a step says otherwise.
+    </p>
+  </header>
+
+  <div class="switcher-dock">
+    <div class="switcher" role="tablist" aria-label="Target platform">
+      <span class="label">Target</span>
+      <button class="track-btn" type="button" role="tab" id="tab-windows" aria-controls="track-windows" aria-selected="true" data-track="windows">
+        <span class="dot"></span>Windows
+      </button>
+      <button class="track-btn" type="button" role="tab" id="tab-linux" aria-controls="track-linux" aria-selected="false" data-track="linux">
+        <span class="dot"></span>Linux &middot; RHEL / CentOS
+      </button>
+    </div>
+  </div>
+
+  <div class="layout">
+
+    <nav class="rail" aria-label="Contents">
+      <div class="rail-title">Steps</div>
+      <ul id="rail-steps"></ul>
+      <div class="rail-title">Reference</div>
+      <ul id="rail-ref"></ul>
+    </nav>
+
+    <main>
+
+<!--TRACKS-->
+
+      <footer>
+        <p>
+          These runbooks ship in the repository as
+          <code>docs\Windows-Target-Runbook.md</code> and
+          <code>docs\Linux-Target-Runbook.md</code>, alongside <code>docs\Target-Host-Restoration.md</code> for putting a target back the way you found it — for use where this page isn't reachable.
+        </p>
+      </footer>
+
+    </main>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var root = document.documentElement;
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('.track-btn'));
+    var railSteps = document.getElementById('rail-steps');
+    var railRef = document.getElementById('rail-ref');
+
+    function fill(list, nodes, numbered) {
+      list.innerHTML = '';
+      Array.prototype.forEach.call(nodes, function (node) {
+        var h = node.querySelector('h3');
+        var li = document.createElement('li');
+        var a = document.createElement('a');
+        a.href = '#' + h.id;
+        var num = numbered ? node.querySelector('.num').textContent : '';
+        a.innerHTML = '<span class="n">' + num + '</span><span>' + h.textContent + '</span>';
+        li.appendChild(a);
+        list.appendChild(li);
+      });
+    }
+
+    function select(track) {
+      tabs.forEach(function (t) {
+        var on = t.dataset.track === track;
+        t.setAttribute('aria-selected', on ? 'true' : 'false');
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      });
+      root.setAttribute('data-track', track);
+      var panel = document.getElementById('track-' + track);
+      fill(railSteps, panel.querySelectorAll('.step'), true);
+      fill(railRef, panel.querySelectorAll('.refsec'), false);
+      try { localStorage.setItem('seg-track', track); } catch (e) { /* private mode */ }
+    }
+
+    tabs.forEach(function (t) {
+      t.addEventListener('click', function () { select(t.dataset.track); });
+    });
+
+    var saved = null;
+    try { saved = localStorage.getItem('seg-track'); } catch (e) { saved = null; }
+    select(saved === 'linux' ? 'linux' : 'windows');
+
+    // copy buttons: the whole point of a runbook is pasting these somewhere else
+    function fallback(text, done) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); done(); } catch (e) { /* nothing else to try */ }
+      document.body.removeChild(ta);
+    }
+
+    Array.prototype.forEach.call(document.querySelectorAll('.copy'), function (btn) {
+      btn.addEventListener('click', function () {
+        var text = btn.parentNode.parentNode.querySelector('pre').innerText;
+        var done = function () {
+          btn.textContent = 'Copied';
+          btn.dataset.done = '1';
+          setTimeout(function () { btn.textContent = 'Copy'; btn.dataset.done = '0'; }, 1600);
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(done, function () { fallback(text, done); });
+        } else {
+          fallback(text, done);
+        }
+      });
+    });
+  })();
+</script>
+
+</body>
+</html>

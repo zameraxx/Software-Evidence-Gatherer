@@ -27,6 +27,19 @@ For a fleet:
 Six steps each, from a blank machine to evidence loaded into Palisade. This README is
 the reference; those are the procedure.
 
+`docs/runbooks.html` is the same two runbooks as one offline page with a Windows/Linux
+switch. **It is generated — do not edit it.** The two Markdown files are the source:
+
+```powershell
+.\tools\Build-Runbooks.ps1          # regenerate after editing either runbook
+.\tools\Build-Runbooks.ps1 -Check   # fail if the page is out of date (for CI or a hook)
+```
+
+See [tools/Build-Runbooks.ps1](tools/Build-Runbooks.ps1) for the three conventions the
+runbooks use — GitHub alert blockquotes for callout severity, a caption after the code
+fence language, and `## Step N — Title` headings — all of which stay valid Markdown and
+render correctly on GitHub.
+
 This repository merges two previously separate collectors —
 `Windows-Software-Evidence-Gatherer` and `Linux-Software-Evidence-Gatherer` —
 behind a single entry point. **The collectors themselves are unchanged in what they

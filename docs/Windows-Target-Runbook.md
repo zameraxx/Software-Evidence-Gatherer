@@ -16,7 +16,7 @@ Everything is typed on **your** machine except Step 2.
 
 Open PowerShell and run all three:
 
-```powershell
+```powershell PowerShell - your machine
 Get-Command ssh.exe
 Get-ChildItem "C:\Tools\EvidenceGatherer" -Recurse | Unblock-File
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
@@ -36,7 +36,7 @@ Two things have to be true on the target computer.
 
 **a) The SSH server is running.** On the target, in an elevated PowerShell:
 
-```powershell
+```powershell PowerShell - on the target, elevated
 Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
 Start-Service sshd
 Set-Service -Name sshd -StartupType Automatic
@@ -44,17 +44,19 @@ Set-Service -Name sshd -StartupType Automatic
 
 **b) Your account is a local administrator.** Check with:
 
-```powershell
+```powershell PowerShell - on the target
 net localgroup Administrators
 ```
 
 Without admin rights the collection still runs, but comes back **incomplete** — it can't
 read the registry hives of users who aren't logged on.
 
+> [!NOTE]
 > **Undoing this later:** everything in this step persists after the collection ends.
 > [Target-Host-Restoration.md](Target-Host-Restoration.md) walks back the SSH server, the
 > admin rights and the key — and says how to tell what was already there.
 
+> [!WARNING]
 > **Windows 2000, XP, or Server 2003?** They have no SSH server. Skip to
 > [Old Windows](#old-windows-2000--xp--2003) at the bottom.
 
@@ -62,7 +64,7 @@ read the registry hives of users who aren't logged on.
 
 ## Step 3 — Connect once by hand
 
-```powershell
+```powershell PowerShell - your machine
 ssh Administrator@win-fs01
 ```
 
@@ -76,7 +78,7 @@ work before you involve the script.
 
 ## Step 4 — Run the collection
 
-```powershell
+```powershell PowerShell - your machine
 cd "C:\Tools\EvidenceGatherer"
 .\Invoke-EvidenceCollection.ps1 Administrator@win-fs01
 ```
@@ -86,7 +88,7 @@ Enter the password when prompted. Takes a few minutes.
 **Too slow?** Add `-NoExe`. That skips the scan for loose `.exe` files, which is the slow
 part, and usually brings it under a minute:
 
-```powershell
+```powershell PowerShell - your machine
 .\Invoke-EvidenceCollection.ps1 Administrator@win-fs01 -NoExe
 ```
 
@@ -96,7 +98,7 @@ Results land in `C:\SWEvidence\<timestamp>` — deliberately outside this folder
 
 ## Step 5 — Check it worked
 
-```powershell
+```powershell PowerShell - your machine
 Import-Csv C:\SWEvidence\*\_logs\collection-manifest_*.csv |
   Format-Table Target,Status,Privileged,Products,Note -AutoSize
 ```
@@ -109,7 +111,7 @@ Import-Csv C:\SWEvidence\*\_logs\collection-manifest_*.csv |
 
 Then hash the files, before they move anywhere:
 
-```powershell
+```powershell PowerShell - your machine
 Get-ChildItem C:\SWEvidence -File -Recurse -Exclude hashes_*.csv |
   Get-FileHash -Algorithm SHA256 |
   Export-Csv "C:\SWEvidence\hashes_$(Get-Date -f yyyyMMdd-HHmmss).csv" -NoTypeInformation
@@ -150,7 +152,7 @@ Full list: `Get-Help .\Invoke-EvidenceCollection.ps1 -Full`
 
 Put one target per line in a text file (copy `hosts.example.txt`), then:
 
-```powershell
+```powershell PowerShell - your machine
 .\Invoke-EvidenceCollection.ps1 -HostList .\hosts.txt -OutputRoot D:\Evidence\Case-114 -AcceptHostKeys -NoExe
 ```
 
@@ -163,7 +165,7 @@ Optional — worth it if you're collecting repeatedly or unattended.
 
 On your machine:
 
-```powershell
+```powershell PowerShell - your machine
 ssh-keygen -t ed25519 -f $env:USERPROFILE\.ssh\evidence_key
 ```
 
@@ -172,7 +174,7 @@ ssh-keygen -t ed25519 -f $env:USERPROFILE\.ssh\evidence_key
 permissions must be exactly right or the key is silently ignored. On the target,
 elevated:
 
-```powershell
+```powershell PowerShell - your machine
 $key = 'ssh-ed25519 AAAAC3Nza... your key here'
 Add-Content -Path C:\ProgramData\ssh\administrators_authorized_keys -Value $key
 icacls C:\ProgramData\ssh\administrators_authorized_keys /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F"
