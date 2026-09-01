@@ -6,10 +6,13 @@ it is, runs the right collector on it, brings the evidence back, and cleans up a
 itself.
 
 ```powershell
-.\Invoke-EvidenceCollection.ps1 server01
+.\Invoke-EvidenceCollection.ps1 Administrator@server01
 ```
 
-That is the whole interface for one host. For a fleet:
+That is the whole interface for one host. Every target names the account to log in as —
+inline like this, or once for all of them with `-UserName`. There is no fallback to your
+own Windows account, because the account a collection ran as is part of the evidence.
+For a fleet:
 
 ```powershell
 .\Invoke-EvidenceCollection.ps1 -HostList .\hosts.txt -OutputRoot D:\Evidence\Enclave-A
@@ -96,7 +99,7 @@ and the collector stamps `COLLECTION INCOMPLETE` inside the evidence itself.
 - an account with passwordless sudo — detected automatically, or
 - pass `-SudoPassword`:
   ```powershell
-  .\Invoke-EvidenceCollection.ps1 rhel7-db -SudoPassword (Read-Host -AsSecureString "sudo password")
+  .\Invoke-EvidenceCollection.ps1 svc-audit@rhel7-db -SudoPassword (Read-Host -AsSecureString "sudo password")
   ```
   The password is written to the remote `sudo` process's standard input, so it never
   appears on a command line where `ps` would show it.
@@ -220,9 +223,10 @@ and this file becomes redundant. Skip generating it with `-NoPalisadeListing`.
 
 | Option | Applies to | Purpose |
 |---|---|---|
-| `-ComputerName` | | one or more targets: `host`, `user@host`, `user@host:port` |
+| `-ComputerName` | | one or more targets: `user@host`, `user@host:port`, or a bare `host` with `-UserName` |
 | `-HostList` | | file of targets, one per line — see `hosts.example.txt` |
-| `-UserName` / `-Port` | | defaults for targets that do not carry their own |
+| `-UserName` | | login account for targets with no `user@` of their own. **No default** — a target with neither is an error |
+| `-Port` | | port for targets with no `:port` of their own (default 22) |
 | `-KeyFile` | | SSH private key |
 | `-Platform` | | force `Windows` or `Linux` instead of probing |
 | `-OutputRoot` | | where evidence lands locally |

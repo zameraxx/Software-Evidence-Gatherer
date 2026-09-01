@@ -45,8 +45,12 @@
   force a platform the probe cannot work out. See hosts.example.txt.
 
 .PARAMETER UserName
-  Default SSH user for targets that do not carry their own "user@" prefix. Defaults to
-  the current user.
+  SSH user for targets that do not carry their own "user@" prefix.
+
+  There is no default. The account a collection ran as decides what the evidence could
+  see, and it is written into the manifest and every transcript, so it is stated rather
+  than inferred from whoever is logged into the machine driving the run. A target with
+  no user in it and no -UserName is an error, not an assumption.
 
 .PARAMETER KeyFile
   SSH private key to authenticate with. Without it, ssh uses whatever your ssh_config
@@ -141,10 +145,11 @@
   Skip building PalisadeListing_<timestamp>.csv at the end of the run.
 
 .EXAMPLE
-  .\Invoke-EvidenceCollection.ps1 server01
+  .\Invoke-EvidenceCollection.ps1 Administrator@server01
 
   Probe server01, collect with whichever collector fits, drop the evidence in
-  .\SWEvidence_<timestamp>.
+  C:\SWEvidence\<timestamp>. Every target names the account to log in as - either
+  inline like this, or once for all of them with -UserName.
 
 .EXAMPLE
   .\Invoke-EvidenceCollection.ps1 root@rhel7-db -KeyFile ~\.ssh\id_ed25519 -Reference "PROD-DB01 / Case 2026-114"
@@ -449,7 +454,14 @@ function New-Target {
         $host_ = $Matches['h']
         $prt   = [int]$Matches['p']
     }
-    if (-not $user) { $user = $env:USERNAME }
+    # No fallback to $env:USERNAME. The account a collection ran as determines what the
+    # evidence could see, and it is recorded in the manifest and every transcript - so it
+    # is something the operator states, not something this script guesses from whoever
+    # happens to be logged into the machine driving it.
+    if (-not $user) {
+        throw ("Target '$Spec' does not say which account to log in as. Write it as " +
+               "'user@$host_', or pass -UserName for every target that omits one.")
+    }
 
     return @{
         Spec         = $Spec
