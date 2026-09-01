@@ -1,0 +1,18 @@
+# The Linux collector has to reach the target with LF line endings. A CRLF shebang
+# fails with a "bad interpreter" error that reads like the file is missing, so the
+# collector checks for CRLF and refuses to run rather than fail confusingly. Forcing
+# eol=lf here keeps a Windows clone from reintroducing the problem whatever the
+# machine's core.autocrlf is set to.
+#
+# Invoke-EvidenceCollection.ps1 does not rely on this: it strips CR bytes from its own
+# copy before uploading, so a collector that reached this machine some other way (a
+# zip, an email, a text-mode transfer) still works. The attribute keeps the repository
+# itself correct; the upload path makes it not matter.
+*.sh text eol=lf
+
+# Windows-side files keep native line endings.
+*.ps1 text eol=crlf
+*.vbs text eol=crlf
+*.bat text eol=crlf
+*.txt text eol=crlf
+*.md  text eol=crlf

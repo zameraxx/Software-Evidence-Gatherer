@@ -1,0 +1,31 @@
+# ---------------------------------------------------------------------------
+# Collection output. Never commit evidence.
+#
+# The runbooks tell you to cd into this folder and run the collector, so output
+# lands here by default - which means without these rules a routine "git add -A"
+# would publish a real host's software inventory, hostname, serial number and
+# logged-in accounts. Use -OutputRoot to write somewhere outside the repo if you
+# would rather not rely on this at all.
+# ---------------------------------------------------------------------------
+SWEvidence_*/
+SoftwareEvidence_*.csv
+LinuxSoftwareEvidence_*.csv
+Summary_*.txt
+PalisadeListing_*.csv
+SWEvidence_hashes.csv
+*.tar.gz
+
+# Real target lists name real machines. hosts.example.txt is the template and is
+# tracked on purpose; anything else is yours.
+hosts.txt
+hosts.*.txt
+!hosts.example.txt
+
+# Approved-software baselines can name internal systems.
+approved_packages.csv
+approved.csv
+
+# SSH keys, in case one is ever generated in here by mistake.
+*.pem
+id_*
+!id_*.md

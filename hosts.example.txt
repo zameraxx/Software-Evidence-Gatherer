@@ -1,0 +1,36 @@
+# Host list for Invoke-EvidenceCollection.ps1 -HostList
+#
+#   .\Invoke-EvidenceCollection.ps1 -HostList .\hosts.txt -OutputRoot D:\Evidence\Enclave-A
+#
+# One target per line. Blank lines and lines starting with # are ignored.
+#
+#   target                      host, user@host, or user@host:port
+#   [platform]                  optional second word: windows, linux, or auto
+#
+# Leave the platform off (or write auto) and the target is probed over SSH before
+# anything is copied to it. Name it to skip the probe - useful when you already know,
+# or when a hardened host answers the probe in a way that cannot be classified.
+#
+# Hosts are collected one at a time, in this order. A host that fails does not stop
+# the run; it is recorded as Failed in the manifest and the next one starts.
+
+# --- Linux ---------------------------------------------------------------------
+root@rhel7-db01
+root@rhel7-db02              linux
+svc-audit@rhel8-app01        linux
+
+# An old box behind a non-standard port. Anything from the RHEL 2.1 / RHEL 4 era also
+# needs -LegacyCrypto on the command line, or the SSH handshake fails before login.
+root@as21-hist:2222          linux
+
+# --- Windows -------------------------------------------------------------------
+# The account should be in the local Administrators group: Windows sshd hands those
+# accounts a full administrator token, and without one the collector cannot read the
+# offline user hives and stamps its output COLLECTION INCOMPLETE.
+Administrator@win2019-file01
+Administrator@win11-wks04    windows
+
+# A Windows 2000 / XP host with no PowerShell. Nothing special is needed here - the
+# collector choice is made on the target by looking for powershell.exe. It does need
+# some third-party sshd, since Microsoft's OpenSSH server does not run on those.
+admin@win2k-legacy           windows
