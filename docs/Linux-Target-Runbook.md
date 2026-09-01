@@ -74,6 +74,9 @@ tasks or parts of the package database, and it says so in the output.
 
 ---
 
+> **Undoing anything later:** if you add an SSH key, or change sudoers to get past a
+> `requiretty` error, [Target-Host-Restoration.md](Target-Host-Restoration.md) walks it back.
+
 ## Step 4 — Run the collection
 
 ```powershell

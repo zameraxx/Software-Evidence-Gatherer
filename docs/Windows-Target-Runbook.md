@@ -51,6 +51,10 @@ net localgroup Administrators
 Without admin rights the collection still runs, but comes back **incomplete** — it can't
 read the registry hives of users who aren't logged on.
 
+> **Undoing this later:** everything in this step persists after the collection ends.
+> [Target-Host-Restoration.md](Target-Host-Restoration.md) walks back the SSH server, the
+> admin rights and the key — and says how to tell what was already there.
+
 > **Windows 2000, XP, or Server 2003?** They have no SSH server. Skip to
 > [Old Windows](#old-windows-2000--xp--2003) at the bottom.
 

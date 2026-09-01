@@ -22,6 +22,7 @@ For a fleet:
 
 - [Windows target — step by step](docs/Windows-Target-Runbook.md)
 - [Linux target — step by step](docs/Linux-Target-Runbook.md)
+- [Restoring a target host](docs/Target-Host-Restoration.md) — undoing the access you enabled, when an engagement ends
 
 Six steps each, from a blank machine to evidence loaded into Palisade. This README is
 the reference; those are the procedure.
@@ -140,7 +141,7 @@ assessor. If the drive root can't be written to, the run falls back to
 `%USERPROFILE%\SWEvidence\<timestamp>` and says so:
 
 ```
-SWEvidence_20260831-140102\
+C:\SWEvidence\20260831-140102\
   SoftwareEvidence_WKS-01_20260831-140233.csv          <- Windows host, raw evidence
   Summary_WKS-01_20260831-140233.txt
   LinuxSoftwareEvidence_rhel7-db_20260831-140510.csv   <- Linux host, raw evidence
