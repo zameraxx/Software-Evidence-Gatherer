@@ -59,10 +59,14 @@
   Force every target to a platform instead of probing: Windows or Linux. Default Auto.
 
 .PARAMETER OutputRoot
-  Local directory to write evidence into. Defaults to .\SWEvidence_<timestamp> under the
-  current directory. Point several runs at the same directory to accumulate a fleet -
-  the collectors stamp every filename with host and timestamp, so files from different
-  hosts and different runs never collide.
+  Local directory to write evidence into. Defaults to %USERPROFILE%\SWEvidence\<timestamp>
+  - deliberately outside this repository, so collected evidence is never sitting in a git
+  working tree, and outside Desktop/Documents, which OneDrive redirects and would sync to
+  a personal cloud account.
+
+  Point several runs at the same directory to accumulate a fleet - the collectors stamp
+  every filename with host and timestamp, so files from different hosts and different runs
+  never collide.
 
 .PARAMETER Reference
   Free text - a system name, case number, assessment ID - recorded inside the evidence.
@@ -212,7 +216,17 @@ $WindowsCollector = Join-Path $ScriptDir 'collectors\windows\Get-SoftwareEvidenc
 $LegacyCollector  = Join-Path $ScriptDir 'collectors\windows\Get-SoftwareEvidence-Legacy.vbs'
 
 $RunStamp = (Get-Date).ToString('yyyyMMdd-HHmmss')
-if (-not $OutputRoot) { $OutputRoot = Join-Path (Get-Location).Path "SWEvidence_$RunStamp" }
+
+# Default output goes under the user profile, NOT the current directory. The runbooks
+# have you cd into this repo before running, so a current-directory default drops
+# collected evidence - hostnames, serial numbers, installed software, account lists -
+# straight into a git working tree, one "git add -A" away from being published. The
+# .gitignore also covers that, but the fix belongs here: don't put it there at all.
+#
+# The profile root specifically, rather than Desktop or Documents: OneDrive's Known
+# Folder Move redirects those two, which would silently sync a host's inventory to a
+# personal cloud account. It does not touch the profile root.
+if (-not $OutputRoot) { $OutputRoot = Join-Path $env:USERPROFILE "SWEvidence\$RunStamp" }
 
 # ============================================================================
 # 1. console output

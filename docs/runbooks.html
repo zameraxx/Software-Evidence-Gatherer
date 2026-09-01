@@ -622,7 +622,7 @@ Set-Service -Name sshd -StartupType Automatic</pre>
               <div class="cmd-head"><span>PowerShell &middot; faster</span><button class="copy" type="button">Copy</button></div>
 <pre>.\Invoke-EvidenceCollection.ps1 Administrator@win-fs01 -NoExe</pre>
             </div>
-            <p>Results land in a new <code>SWEvidence_&lt;timestamp&gt;</code> folder in the current directory.</p>
+            <p>Results land in <code>%USERPROFILE%\SWEvidence\&lt;timestamp&gt;</code> — deliberately outside this folder, so evidence never sits in the repo.</p>
           </div>
         </article>
 
@@ -632,7 +632,7 @@ Set-Service -Name sshd -StartupType Automatic</pre>
           <div class="body">
             <div class="cmd">
               <div class="cmd-head"><span>PowerShell &middot; your machine</span><button class="copy" type="button">Copy</button></div>
-<pre>Import-Csv .\SWEvidence_*\_logs\collection-manifest_*.csv |
+<pre>Import-Csv $env:USERPROFILE\SWEvidence\*\_logs\collection-manifest_*.csv |
   Format-Table Target,Status,Privileged,Products,Note -AutoSize</pre>
             </div>
             <div class="tablewrap">
@@ -648,8 +648,9 @@ Set-Service -Name sshd -StartupType Automatic</pre>
             <p>Then hash the files, before they move anywhere:</p>
             <div class="cmd">
               <div class="cmd-head"><span>PowerShell &middot; your machine</span><button class="copy" type="button">Copy</button></div>
-<pre>Get-ChildItem .\SWEvidence_* -File -Recurse | Get-FileHash -Algorithm SHA256 |
-  Export-Csv .\SWEvidence_hashes.csv -NoTypeInformation</pre>
+<pre>Get-ChildItem $env:USERPROFILE\SWEvidence -File -Recurse -Exclude hashes_*.csv |
+  Get-FileHash -Algorithm SHA256 |
+  Export-Csv "$env:USERPROFILE\SWEvidence\hashes_$(Get-Date -f yyyyMMdd-HHmmss).csv" -NoTypeInformation</pre>
             </div>
           </div>
         </article>
@@ -722,7 +723,7 @@ Set-Service -Name sshd -StartupType Automatic</pre>
             <ol>
               <li>Copy the <code>collectors\windows\</code> folder to the machine.</li>
               <li>Right-click <code>Get-SoftwareEvidence.bat</code> &rarr; <strong>Run as administrator</strong>.</li>
-              <li>Output appears on the Desktop. Copy it back and drop it in your <code>SWEvidence_*</code> folder.</li>
+              <li>Output appears on the Desktop. Copy it back and drop it into the run folder under <code>%USERPROFILE%\SWEvidence\</code>.</li>
             </ol>
             <p>The <code>.bat</code> automatically uses the VBScript collector on machines with no PowerShell.</p>
           </div>
@@ -923,7 +924,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass</pre>
               <div class="cmd-head"><span>PowerShell &middot; faster</span><button class="copy" type="button">Copy</button></div>
 <pre>.\Invoke-EvidenceCollection.ps1 root@rhel7-db01 -SkipFileScan</pre>
             </div>
-            <p>Results land in a new <code>SWEvidence_&lt;timestamp&gt;</code> folder in the current directory.</p>
+            <p>Results land in <code>%USERPROFILE%\SWEvidence\&lt;timestamp&gt;</code> — deliberately outside this folder, so evidence never sits in the repo.</p>
           </div>
         </article>
 
@@ -933,7 +934,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass</pre>
           <div class="body">
             <div class="cmd">
               <div class="cmd-head"><span>PowerShell &middot; your machine</span><button class="copy" type="button">Copy</button></div>
-<pre>Import-Csv .\SWEvidence_*\_logs\collection-manifest_*.csv |
+<pre>Import-Csv $env:USERPROFILE\SWEvidence\*\_logs\collection-manifest_*.csv |
   Format-Table Target,Status,Privileged,Products,Note -AutoSize</pre>
             </div>
             <div class="tablewrap">
@@ -949,8 +950,9 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass</pre>
             <p>Then hash the files, before they move anywhere:</p>
             <div class="cmd">
               <div class="cmd-head"><span>PowerShell &middot; your machine</span><button class="copy" type="button">Copy</button></div>
-<pre>Get-ChildItem .\SWEvidence_* -File -Recurse | Get-FileHash -Algorithm SHA256 |
-  Export-Csv .\SWEvidence_hashes.csv -NoTypeInformation</pre>
+<pre>Get-ChildItem $env:USERPROFILE\SWEvidence -File -Recurse -Exclude hashes_*.csv |
+  Get-FileHash -Algorithm SHA256 |
+  Export-Csv "$env:USERPROFILE\SWEvidence\hashes_$(Get-Date -f yyyyMMdd-HHmmss).csv" -NoTypeInformation</pre>
             </div>
           </div>
         </article>
