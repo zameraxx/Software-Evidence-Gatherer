@@ -147,8 +147,9 @@ Administrator** (RID 500) gets a full token over the network; any other local ad
 handed a filtered token and the collection comes back `Partial` / `COLLECTION
 INCOMPLETE`. The registry switch that changes this (`LocalAccountTokenFilterPolicy=1`) is
 a STIG finding, so the script never touches it — it reports the incomplete result the
-same way it does for an unelevated run. The full walk-through, including enabling WinRM on
-the target, is in [docs/Windows-Target-Runbook.md](docs/Windows-Target-Runbook.md#reaching-windows-without-ssh).
+same way it does for an unelevated run. The Windows runbook,
+[docs/Windows-Target-Runbook.md](docs/Windows-Target-Runbook.md), is built around this
+WinRM/WMI path start to finish; SSH is a reference section there.
 
 Linux is always SSH regardless of `-Transport`, and a `-HostList` can mix both — rows
 marked `linux` use SSH even when `-Transport WinRM` is set for the Windows ones.

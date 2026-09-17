@@ -499,7 +499,7 @@
 
   <header class="masthead">
     <div class="eyebrow">Software Evidence Gatherer &middot; Field Procedure</div>
-    <h1>Collecting evidence over SSH</h1>
+    <h1>Remote evidence collection</h1>
     <p class="standfirst">
       Six steps per target. Pick your platform below — the page follows you. Everything is
       typed on <strong>your</strong> machine unless a step says otherwise.
@@ -533,17 +533,21 @@
 
         <div class="track-head">
           <h2>Windows Target</h2>
-            <p>Six steps. Steps 1–2 are one-time setup. Steps 3–6 are every collection.</p>
-            <p>Everything is typed on <strong>your</strong> machine except Step 2.</p>
+            <p>Six steps. Steps 1–2 are one-time setup (Step 2 is per host). Steps 3–6 are every collection.</p>
+            <p>This runbook uses <strong>WinRM</strong> — Windows' own remote-management channel — because many Windows environments don't permit SSH. WinRM automatically falls back to <strong>WMI + the C$ admin share</strong> if it isn't listening. Both are built into Windows; nothing extra is installed on your machine or the target. If you <em>can</em> use SSH, see <a href="#win-using-ssh-instead">Using SSH instead</a>.</p>
             <div class="tablewrap">
               <table>
                 <thead><tr><th>In these examples</th><th>Means</th></tr></thead>
                 <tbody>
                   <tr><td><code>C:\Tools\EvidenceGatherer</code></td><td>Wherever you put this folder</td></tr>
                   <tr><td><code>win-fs01</code></td><td>Your target computer</td></tr>
-                  <tr><td><code>Administrator</code></td><td>An admin account on the target</td></tr>
+                  <tr><td><code>Administrator</code></td><td>A local admin account on the target</td></tr>
                 </tbody>
               </table>
+            </div>
+            <div class="note warn">
+              <span class="tag">Use the built-in Administrator.</span>
+              <p>With no domain you authenticate as a local account, and Windows hands any other local admin a filtered (standard-user) token — the collection then runs but comes back incomplete. Step 2 explains why.</p>
             </div>
         </div>
 
@@ -554,61 +558,58 @@
             <p>Open PowerShell and run all three:</p>
             <div class="cmd">
               <div class="cmd-head"><span>PowerShell - your machine</span><button class="copy" type="button">Copy</button></div>
-<pre>Get-Command ssh.exe
+<pre>Get-Service WinRM | Start-Service
 Get-ChildItem "C:\Tools\EvidenceGatherer" -Recurse | Unblock-File
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass</pre>
             </div>
             <ul>
-              <li><strong>Line 1</strong> checks you have the SSH client. If it says "not recognized", open PowerShell <strong>as administrator</strong> and run <code>Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0</code></li>
+              <li><strong>Line 1</strong> starts this machine's WinRM client service (needed even just to connect out). If it's already running, this does nothing.</li>
               <li><strong>Line 2</strong> unblocks the downloaded files. Without it PowerShell refuses to run them.</li>
               <li><strong>Line 3</strong> allows scripts in this window only. Nothing permanent changes.</li>
             </ul>
+            <p>Nothing else is needed — WinRM, WMI and the C$ share are all built in.</p>
           </div>
         </article>
 
         <article class="step">
           <div class="marker"><span class="num">2</span><span class="spine"></span></div>
-          <h3 id="win-set-up-the-target-once-per-host">Set up the target (once per host)</h3>
+          <h3 id="win-enable-winrm-on-the-target-once-per-host">Enable WinRM on the target (once per host)</h3>
           <div class="body">
             <p>Two things have to be true on the target computer.</p>
-            <p><strong>a) The SSH server is running.</strong> On the target, in an elevated PowerShell:</p>
+            <p><strong>a) WinRM is listening.</strong> On the target, in an elevated PowerShell:</p>
             <div class="cmd">
               <div class="cmd-head"><span>PowerShell - on the target, elevated</span><button class="copy" type="button">Copy</button></div>
-<pre>Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
-Start-Service sshd
-Set-Service -Name sshd -StartupType Automatic</pre>
+<pre>Enable-PSRemoting -Force -SkipNetworkProfileCheck</pre>
             </div>
-            <p><strong>b) Your account is a local administrator.</strong> Check with:</p>
-            <div class="cmd">
-              <div class="cmd-head"><span>PowerShell - on the target</span><button class="copy" type="button">Copy</button></div>
-<pre>net localgroup Administrators</pre>
+            <p><code>-SkipNetworkProfileCheck</code> matters on a standalone host: if its network is set to <strong>Public</strong>, <code>Enable-PSRemoting</code> otherwise refuses to open the firewall.</p>
+            <p><strong>b) You use the built-in Administrator.</strong> This is the one thing to get right:</p>
+            <div class="tablewrap">
+              <table>
+                <thead><tr><th>Account you connect as</th><th>Token</th><th>Result</th></tr></thead>
+                <tbody>
+                  <tr><td>Built-in <strong>Administrator</strong> (RID 500)</td><td>Full</td><td>Complete collection</td></tr>
+                  <tr><td>Any other local admin</td><td>Filtered (standard user)</td><td>Runs, but <code>Partial</code> / <code>COLLECTION INCOMPLETE</code></td></tr>
+                </tbody>
+              </table>
             </div>
-            <p>Without admin rights the collection still runs, but comes back <strong>incomplete</strong> — it can't read the registry hives of users who aren't logged on.</p>
+            <p>The built-in Administrator is exempt from remote token filtering; any other local admin is not, and can't read the offline user hives or parts of the registry. The registry switch that lifts the filtering (<code>LocalAccountTokenFilterPolicy=1</code>) is itself a STIG finding, so the script never sets it — it reports the incomplete result instead.</p>
             <div class="note">
               <span class="tag">Undoing this later</span>
-              <p>everything in this step persists after the collection ends. <a href="Target-Host-Restoration.md">Target-Host-Restoration.md</a> walks back the SSH server, the admin rights and the key — and says how to tell what was already there.</p>
-            </div>
-            <div class="note">
-              <span class="tag">Not allowed to use SSH on Windows here?</span>
-              <p>Reach the host over WinRM or WMI instead — see <a href="#win-reaching-windows-without-ssh">Reaching Windows without SSH</a> in the reference. The other steps still apply; only how you connect changes.</p>
-            </div>
-            <div class="note warn">
-              <span class="tag">Windows 2000, XP, or Server 2003?</span>
-              <p>They have no SSH server. Skip to <a href="#win-old-windows-2000--xp--2003">Old Windows</a> at the bottom.</p>
+              <p>WinRM stays enabled after the collection. <a href="Target-Host-Restoration.md">Target-Host-Restoration.md</a> turns it back off, and says how to tell whether it was already on before you arrived.</p>
             </div>
           </div>
         </article>
 
         <article class="step">
           <div class="marker"><span class="num">3</span><span class="spine"></span></div>
-          <h3 id="win-connect-once-by-hand">Connect once by hand</h3>
+          <h3 id="win-test-the-connection">Test the connection</h3>
           <div class="body">
+            <p>Prove your credentials and trust work before the real run:</p>
             <div class="cmd">
               <div class="cmd-head"><span>PowerShell - your machine</span><button class="copy" type="button">Copy</button></div>
-<pre>ssh Administrator@win-fs01</pre>
+<pre>Test-WSMan win-fs01</pre>
             </div>
-            <p>Type <code>yes</code> to accept the host key, log in, then type <code>exit</code>.</p>
-            <p>Do this once per host. It's what stops the collection failing with <code>Host key verification failed</code>. Connecting by hand first also proves your credentials work before you involve the script.</p>
+            <p>If that errors with a TrustedHosts message, it's expected for a non-domain host over HTTP — Step 4 handles it with <code>-AddTrustedHost</code>. If it errors with <em>Access is denied</em>, the credential is wrong or the account can't remote in. A clean reply means you're ready.</p>
           </div>
         </article>
 
@@ -619,13 +620,14 @@ Set-Service -Name sshd -StartupType Automatic</pre>
             <div class="cmd">
               <div class="cmd-head"><span>PowerShell - your machine</span><button class="copy" type="button">Copy</button></div>
 <pre>cd "C:\Tools\EvidenceGatherer"
-.\Invoke-EvidenceCollection.ps1 Administrator@win-fs01</pre>
+.\Invoke-EvidenceCollection.ps1 win-fs01 -Transport WinRM -AddTrustedHost</pre>
             </div>
-            <p>Enter the password when prompted. Takes a few minutes.</p>
+            <p>You're prompted for the credential — enter it as <code>win-fs01\Administrator</code> or <code>.\Administrator</code>. Takes a few minutes.</p>
+            <p><code>-AddTrustedHost</code> adds the target to your machine's WinRM TrustedHosts, which NTLM over HTTP requires for a non-domain host. It's a change to <em>your</em> machine, so it's opt-in; the run tells you the exact command if you leave it off.</p>
             <p><strong>Too slow?</strong> Add <code>-NoExe</code>. That skips the scan for loose <code>.exe</code> files, which is the slow part, and usually brings it under a minute:</p>
             <div class="cmd">
               <div class="cmd-head"><span>PowerShell - your machine</span><button class="copy" type="button">Copy</button></div>
-<pre>.\Invoke-EvidenceCollection.ps1 Administrator@win-fs01 -NoExe</pre>
+<pre>.\Invoke-EvidenceCollection.ps1 win-fs01 -Transport WinRM -AddTrustedHost -NoExe</pre>
             </div>
             <p>Results land in <code>C:\SWEvidence\&lt;timestamp&gt;</code> — deliberately outside this folder, so evidence never sits in the repo, and outside your user folder, so the path carries no account name.</p>
           </div>
@@ -638,14 +640,15 @@ Set-Service -Name sshd -StartupType Automatic</pre>
             <div class="cmd">
               <div class="cmd-head"><span>PowerShell - your machine</span><button class="copy" type="button">Copy</button></div>
 <pre>Import-Csv C:\SWEvidence\*\_logs\collection-manifest_*.csv |
-  Format-Table Target,Status,Privileged,Products,Note -AutoSize</pre>
+  Format-Table Target,Transport,Status,Privileged,Products,Note -AutoSize</pre>
             </div>
+            <p>The <code>Transport</code> column shows how each host was actually reached — <code>WinRM</code>, <code>WMI</code>, or <code>WMI (WinRM fell back)</code>.</p>
             <div class="tablewrap">
               <table>
                 <thead><tr><th>Status</th><th>What it means</th><th>What to do</th></tr></thead>
                 <tbody>
                   <tr><td><span class="pill ok">Collected</span></td><td>Complete. <code>Privileged</code> says <code>True</code>.</td><td>Nothing — you're done</td></tr>
-                  <tr><td><span class="pill warn">Partial</span></td><td>It ran, but not as an admin</td><td>Fix Step 2b and re-run</td></tr>
+                  <tr><td><span class="pill warn">Partial</span></td><td>Ran, but with a filtered token</td><td>Re-run as the built-in Administrator (Step 2b)</td></tr>
                   <tr><td><span class="pill stop">Failed</span></td><td>Nothing collected</td><td>Read the <code>Note</code> column, then see <a href="#win-if-something-goes-wrong">troubleshooting</a></td></tr>
                 </tbody>
               </table>
@@ -680,12 +683,13 @@ Set-Service -Name sshd -StartupType Automatic</pre>
                 <thead><tr><th>Option</th><th>Does</th></tr></thead>
                 <tbody>
                   <tr><td><code>-NoExe</code></td><td>Skip the slow file scan</td></tr>
+                  <tr><td><code>-Credential $c</code></td><td>Supply the credential instead of being prompted (<code>$c = Get-Credential .\Administrator</code>)</td></tr>
+                  <tr><td><code>-Transport WMI</code></td><td>Skip WinRM and use WMI + the C$ share only</td></tr>
+                  <tr><td><code>-NoWmiFallback</code></td><td>Make <code>-Transport WinRM</code> strict — fail instead of falling back to WMI</td></tr>
+                  <tr><td><code>-UseSSL</code></td><td>WinRM over HTTPS 5986 instead of HTTP 5985 (needs a certificate on the target)</td></tr>
                   <tr><td><code>-OutputRoot D:\Evidence\Case-114</code></td><td>Put results somewhere specific</td></tr>
                   <tr><td><code>-HostList .\hosts.txt</code></td><td>Collect from many hosts instead of one</td></tr>
                   <tr><td><code>-KeepRemote</code></td><td>Don't delete the temp folder on the target (useful the first time)</td></tr>
-                  <tr><td><code>-AcceptHostKeys</code></td><td>Auto-trust unknown hosts — replaces Step 3 for a big sweep</td></tr>
-                  <tr><td><code>-UserName svc-audit</code></td><td>Login account for targets written as a bare hostname. <strong>No default</strong> — a target with neither is an error</td></tr>
-                  <tr><td><code>-Platform Windows</code></td><td>Skip OS detection</td></tr>
                 </tbody>
               </table>
             </div>
@@ -694,93 +698,65 @@ Set-Service -Name sshd -StartupType Automatic</pre>
         </section>
 
         <section class="refsec">
-          <h3 id="win-reaching-windows-without-ssh">Reaching Windows without SSH</h3>
+          <h3 id="win-collecting-from-many-hosts">Collecting from many hosts</h3>
           <div class="body">
-            <p>Some environments don't permit SSH on Windows. Reach those hosts over <strong>WinRM</strong> (PowerShell Remoting), which automatically falls back to <strong>WMI + the C$ admin share</strong> if WinRM isn't listening. Both are built into Windows — nothing extra on your machine.</p>
-            <p>Everything else in this runbook still applies; only how you connect changes.</p>
-            <h4 class="subhead">On the target: enable WinRM (once per host)</h4>
-            <p>In an elevated PowerShell on the target:</p>
-            <div class="cmd">
-              <div class="cmd-head"><span>PowerShell - on the target, elevated</span><button class="copy" type="button">Copy</button></div>
-<pre>Enable-PSRemoting -Force -SkipNetworkProfileCheck</pre>
-            </div>
-            <p><code>-SkipNetworkProfileCheck</code> matters on a standalone host: if its network is set to <strong>Public</strong>, <code>Enable-PSRemoting</code> otherwise refuses to open the firewall. The WMI fallback usually needs nothing enabled — SMB and the C$ share are on by default.</p>
-            <h4 class="subhead">The account decides whether the collection is complete</h4>
-            <p>This is the one thing to get right. With no domain you authenticate as a <strong>local</strong> account, and Windows filters the network token of a local admin:</p>
-            <div class="tablewrap">
-              <table>
-                <thead><tr><th>Account you connect as</th><th>Token</th><th>Result</th></tr></thead>
-                <tbody>
-                  <tr><td>Built-in <strong>Administrator</strong> (RID 500)</td><td>Full</td><td>Complete</td></tr>
-                  <tr><td>Any other local admin</td><td>Filtered (standard user)</td><td>Runs, but <code>Partial</code> / <code>COLLECTION INCOMPLETE</code></td></tr>
-                </tbody>
-              </table>
-            </div>
-            <p>Use the built-in Administrator for a complete collection. The registry switch that lifts the filtering (<code>LocalAccountTokenFilterPolicy=1</code>) is itself a STIG finding, so the script never sets it — it reports the incomplete result instead, the same way it does for an unelevated SSH run.</p>
-            <h4 class="subhead">On your machine: trust the host, then run</h4>
-            <p>NTLM to a non-domain host over HTTP needs the target in your WinRM TrustedHosts. <code>-AddTrustedHost</code> adds it for you — it's a change to <em>your</em> machine, so it's opt-in:</p>
-            <div class="cmd">
-              <div class="cmd-head"><span>PowerShell - your machine</span><button class="copy" type="button">Copy</button></div>
-<pre>.\Invoke-EvidenceCollection.ps1 win-fs01 -Transport WinRM -AddTrustedHost</pre>
-            </div>
-            <p>You're prompted for the credential; enter it as <code>win-fs01\Administrator</code> or <code>.\Administrator</code>. For many hosts, list them and pass <code>-Credential</code> once:</p>
+            <p>Put one target per line in a text file (copy <code>hosts.example.txt</code>), then supply the credential once so it isn't prompted per host:</p>
             <div class="cmd">
               <div class="cmd-head"><span>PowerShell - your machine</span><button class="copy" type="button">Copy</button></div>
 <pre>$c = Get-Credential .\Administrator
-.\Invoke-EvidenceCollection.ps1 -HostList .\hosts.txt -Transport WinRM -Credential $c -AddTrustedHost</pre>
+.\Invoke-EvidenceCollection.ps1 -HostList .\hosts.txt -Transport WinRM -Credential $c -AddTrustedHost -NoExe</pre>
             </div>
-            <p>The manifest's <code>Transport</code> column records how each host was actually reached — <code>WinRM</code>, <code>WMI</code>, or <code>WMI (WinRM fell back)</code>.</p>
-            <h4 class="subhead">Notes</h4>
+            <p>One host failing doesn't stop the run. Everything lands in one folder and the manifest gives you a row per host. A row marked <code>linux</code> in the list is collected over SSH even here — the two mix freely.</p>
+          </div>
+        </section>
+
+        <section class="refsec">
+          <h3 id="win-when-winrm-isnt-available-wmi">When WinRM isn't available (WMI)</h3>
+          <div class="body">
+            <p>WinRM falls back to WMI automatically, but you can force it with <code>-Transport WMI</code> to skip WinRM entirely. WMI reaches the target over DCOM and moves files over the C$ admin share, so it needs, from your workstation:</p>
             <ul>
-              <li><strong>HTTP 5985 is not cleartext.</strong> Under Negotiate/NTLM the payload is message-encrypted. If your baseline forbids the HTTP listener even so, set up an HTTPS listener (5986) on each target and add <code>-UseSSL</code>.</li>
-              <li><strong>WMI only:</strong> <code>-Transport WMI</code> skips WinRM entirely. It needs SMB (445), RPC (135 plus the dynamic range), and the C$ share reachable from your workstation. If your ACAS scans already credential these hosts, that path is open from the scanner — confirm it's also open from your machine.</li>
-              <li><strong>This machine needs its own WinRM client service running</strong> for <code>-Transport WinRM</code> (<code>Start-Service WinRM</code>). If it's stopped, the run falls back to WMI on its own.</li>
-              <li><strong>Undo:</strong> <a href="Target-Host-Restoration.md">Target-Host-Restoration.md</a> covers turning WinRM back off.</li>
+              <li><strong>SMB</strong> (TCP 445) and the <strong>C$</strong> administrative share reachable</li>
+              <li><strong>RPC</strong> (TCP 135 plus the dynamic high-port range)</li>
             </ul>
+            <p>If your ACAS credentialed scans already work against these hosts, SMB and RPC are open from the scanner — confirm they're also open from your workstation, since firewall rules are usually per source. There is no live progress over WMI: the collector is launched and polled for exit, so a run looks quiet until it finishes.</p>
           </div>
         </section>
 
         <section class="refsec">
-          <h3 id="win-collecting-from-many-hosts">Collecting from many hosts</h3>
+          <h3 id="win-http-vs-https">HTTP vs HTTPS</h3>
           <div class="body">
-            <p>Put one target per line in a text file (copy <code>hosts.example.txt</code>), then:</p>
-            <div class="cmd">
-              <div class="cmd-head"><span>PowerShell - your machine</span><button class="copy" type="button">Copy</button></div>
-<pre>.\Invoke-EvidenceCollection.ps1 -HostList .\hosts.txt -OutputRoot D:\Evidence\Case-114 -AcceptHostKeys -NoExe</pre>
-            </div>
-            <p>One host failing doesn't stop the run. Everything lands in one folder and the manifest gives you a row per host.</p>
+            <p>The default HTTP listener (5985) is <strong>not</strong> cleartext — under Negotiate/NTLM the payload is message-encrypted. Use HTTPS (5986) only when a baseline forbids the HTTP listener outright; set up an HTTPS listener on each target and add <code>-UseSSL</code>.</p>
           </div>
         </section>
 
         <section class="refsec">
-          <h3 id="win-using-an-ssh-key-instead-of-a-password">Using an SSH key instead of a password</h3>
+          <h3 id="win-using-ssh-instead">Using SSH instead</h3>
           <div class="body">
-            <p>Optional — worth it if you're collecting repeatedly or unattended.</p>
-            <p>On your machine:</p>
+            <p>If a Windows host runs the OpenSSH Server, you can collect over SSH with <code>-Transport SSH</code> (or just let <code>-Transport Auto</code>, the default, probe for it).</p>
+            <p>Set up, once per host, on the target in an elevated PowerShell:</p>
+            <div class="cmd">
+              <div class="cmd-head"><span>PowerShell - on the target, elevated</span><button class="copy" type="button">Copy</button></div>
+<pre>Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
+Start-Service sshd
+Set-Service -Name sshd -StartupType Automatic</pre>
+            </div>
+            <p>Your machine needs the OpenSSH client (<code>Get-Command ssh.exe</code>; add it with <code>Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0</code>). Connect once by hand to accept the host key (<code>ssh Administrator@win-fs01</code>), then run:</p>
             <div class="cmd">
               <div class="cmd-head"><span>PowerShell - your machine</span><button class="copy" type="button">Copy</button></div>
-<pre>ssh-keygen -t ed25519 -f $env:USERPROFILE\.ssh\evidence_key</pre>
+<pre>.\Invoke-EvidenceCollection.ps1 Administrator@win-fs01 -Transport SSH</pre>
             </div>
-            <p><strong>Important:</strong> for an admin account, Windows does <strong>not</strong> use <code>C:\Users\&lt;user&gt;\.ssh\authorized_keys</code>. It uses one machine-wide file, and the permissions must be exactly right or the key is silently ignored. On the target, elevated:</p>
-            <div class="cmd">
-              <div class="cmd-head"><span>PowerShell - your machine</span><button class="copy" type="button">Copy</button></div>
-<pre>$key = 'ssh-ed25519 AAAAC3Nza... your key here'
-Add-Content -Path C:\ProgramData\ssh\administrators_authorized_keys -Value $key
-icacls C:\ProgramData\ssh\administrators_authorized_keys /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F"</pre>
-            </div>
-            <p>Then add <code>-KeyFile $env:USERPROFILE\.ssh\evidence_key</code> to the Step 4 command. Add <code>-BatchMode</code> too if it's running unattended, so it fails instead of waiting at a prompt.</p>
+            <p>Over SSH, an account in the local Administrators group gets a full token, so the built-in Administrator isn't required the way it is for WinRM/WMI. For SSH key auth and the admin-key file quirk, see <code>Get-Help .\Invoke-EvidenceCollection.ps1 -Full</code>.</p>
           </div>
         </section>
 
         <section class="refsec">
           <h3 id="win-old-windows-2000--xp--2003">Old Windows (2000 / XP / 2003)</h3>
           <div class="body">
-            <p>These have no SSH server, so this script can't reach them unless someone has already installed a third-party one (Bitvise, Cygwin sshd, VShell).</p>
-            <p>Collect by hand instead:</p>
+            <p>These have no WinRM and no SSH server, and speak only SMBv1, which current Windows no longer includes. Collect by hand:</p>
             <ol>
               <li>Copy the <code>collectors\windows\</code> folder to the machine.</li>
               <li>Right-click <code>Get-SoftwareEvidence.bat</code> → <strong>Run as administrator</strong>.</li>
-              <li>Output appears on the Desktop. Copy it back to your machine and drop it into the run folder under <code>C:\SWEvidence\</code>.</li>
+              <li>Output appears on the Desktop. Copy it back and drop it into the run folder under <code>C:\SWEvidence\</code>.</li>
             </ol>
             <p>The <code>.bat</code> automatically uses the VBScript collector on machines with no PowerShell.</p>
           </div>
@@ -791,13 +767,13 @@ icacls C:\ProgramData\ssh\administrators_authorized_keys /inheritance:r /grant "
           <div class="body">
             <p>Useful for your collection notes:</p>
             <ol>
-              <li>Creates a temp folder in the SSH user's home directory.</li>
+              <li>Creates a temp folder under <code>C:\Windows\Temp</code> on the target.</li>
               <li>Copies in <strong>one</strong> file — the collector script.</li>
-              <li>Runs it.</li>
+              <li>Runs it (over WinRM, as a remote PowerShell command; over WMI, via <code>Win32_Process.Create</code>).</li>
               <li>Copies the results back to you.</li>
               <li>Deletes the temp folder.</li>
             </ol>
-            <p>Nothing is installed. No service, no registry changes, and the collector makes <strong>no network connections</strong> — the only traffic is your SSH session.</p>
+            <p>Nothing is installed. No service or scheduled task is created, and the collector itself makes <strong>no network calls</strong> — the only traffic is your WinRM or WMI session. The one registry action is a temporary read of offline user hives, mounted and unmounted during the run.</p>
           </div>
         </section>
 
@@ -808,15 +784,15 @@ icacls C:\ProgramData\ssh\administrators_authorized_keys /inheritance:r /grant "
               <table>
                 <thead><tr><th>Message</th><th>Fix</th></tr></thead>
                 <tbody>
-                  <tr><td><code>Could not resolve hostname</code></td><td>Use the IP address or full DNS name</td></tr>
-                  <tr><td><code>Connection refused</code></td><td>SSH server isn't running — redo Step 2a</td></tr>
-                  <tr><td><code>Host key verification failed</code></td><td>Do Step 3, or add <code>-AcceptHostKeys</code></td></tr>
-                  <tr><td><code>Permission denied (publickey,...)</code></td><td>Password typo, or your key is in the wrong file — see the SSH key section</td></tr>
-                  <tr><td>Status <code>Partial</code></td><td>Account isn't a local admin — Step 2b</td></tr>
-                  <tr><td><code>Neither the POSIX nor the Windows probe...</code></td><td>Add <code>-Platform Windows</code></td></tr>
+                  <tr><td><code>not in this machine's WinRM TrustedHosts</code></td><td>Add <code>-AddTrustedHost</code>, or run the exact <code>Set-Item WSMan:...</code> command it prints</td></tr>
+                  <tr><td><code>WinRM client on this machine is not available</code></td><td><code>Start-Service WinRM</code> (Step 1), elevated</td></tr>
+                  <tr><td><code>Access is denied</code></td><td>Wrong credential, or the account can't remote in — check it, and that it's a local admin</td></tr>
+                  <tr><td>Status <code>Partial</code></td><td>You connected as a non-built-in local admin — re-run as the built-in Administrator (Step 2b)</td></tr>
+                  <tr><td><code>WinRM cannot complete the operation ... check ... running and accepting requests</code></td><td>WinRM isn't enabled on the target — redo Step 2a. It then falls back to WMI on its own</td></tr>
+                  <tr><td><code>Could not open \\host\C$</code></td><td>SMB/RPC blocked from your workstation, the share is off, or a filtered/denied token — see <a href="#win-when-winrm-isnt-available-wmi">When WinRM isn't available</a></td></tr>
                   <tr><td>Script won't start at all</td><td>You skipped Step 1, lines 2 and 3</td></tr>
                   <tr><td>Takes forever</td><td>Add <code>-NoExe</code></td></tr>
-                  <tr><td>Ran, but no files came back</td><td>Re-run with <code>-KeepRemote</code>, then look in the target's home folder for a <code>swev_*</code> directory</td></tr>
+                  <tr><td>Ran, but no files came back</td><td>Re-run with <code>-KeepRemote</code>, then look in <code>C:\Windows\Temp\swev_*</code> on the target</td></tr>
                 </tbody>
               </table>
             </div>
