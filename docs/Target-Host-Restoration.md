@@ -105,6 +105,44 @@ Remove-NetFirewallRule -Name "OpenSSH-Server-In-TCP"
 
 Check the name first — only remove a rule the capability install created.
 
+## A1b — Windows target reached over WinRM / WMI
+
+If you used `-Transport WinRM` or `-Transport WMI` instead of SSH, the SSH steps above
+don't apply. Undo only what you enabled.
+
+**On the target — turn WinRM back off**, but *only if you enabled it* for this collection
+(if it was already on, leave it):
+
+```powershell
+Disable-PSRemoting -Force
+Stop-Service WinRM
+Set-Service WinRM -StartupType Manual
+```
+
+`Disable-PSRemoting` leaves the listener and firewall rule in place by design. To remove
+those too, when WinRM was not present before you arrived:
+
+```powershell
+Get-ChildItem WSMan:\localhost\Listener | Remove-Item -Recurse
+Get-NetFirewallRule -DisplayGroup "Windows Remote Management" | Disable-NetFirewallRule
+```
+
+**WMI + the C$ share** need no teardown — nothing was enabled. They're on by default; the
+collection only *used* them.
+
+**On your machine** — if you added the target to TrustedHosts (with `-AddTrustedHost` or
+by hand), remove it when the engagement ends:
+
+```powershell
+$current = (Get-Item WSMan:\localhost\Client\TrustedHosts).Value
+Set-Item WSMan:\localhost\Client\TrustedHosts -Value (
+  ($current -split ',' | Where-Object { $_.Trim() -ne 'win-fs01' }) -join ','
+) -Force
+```
+
+Leave it if you'll collect from that host again. To clear the list entirely:
+`Clear-Item WSMan:\localhost\Client\TrustedHosts`.
+
 ## A2 — Linux target
 
 Much less to undo, because nothing was installed.

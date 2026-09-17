@@ -130,6 +130,29 @@ accounts a full administrator token, so no separate elevation step is needed. An
 outside that group cannot read the offline user hives or parts of the registry, and the
 collector reports it.
 
+## Windows hosts that can't use SSH
+
+For Windows targets where SSH isn't permitted, reach them over **WinRM** (PowerShell
+Remoting), which falls back to **WMI over DCOM + the C$ admin share** if WinRM isn't
+listening:
+
+```powershell
+.\Invoke-EvidenceCollection.ps1 win-fs01 -Transport WinRM -AddTrustedHost
+```
+
+Neither needs anything installed on your machine — both are built into Windows. They
+authenticate with `-Credential` as a **local** account on the target (there is no
+domain). One thing decides completeness: on a standalone host only the **built-in
+Administrator** (RID 500) gets a full token over the network; any other local admin is
+handed a filtered token and the collection comes back `Partial` / `COLLECTION
+INCOMPLETE`. The registry switch that changes this (`LocalAccountTokenFilterPolicy=1`) is
+a STIG finding, so the script never touches it — it reports the incomplete result the
+same way it does for an unelevated run. The full walk-through, including enabling WinRM on
+the target, is in [docs/Windows-Target-Runbook.md](docs/Windows-Target-Runbook.md#reaching-windows-without-ssh).
+
+Linux is always SSH regardless of `-Transport`, and a `-HostList` can mix both — rows
+marked `linux` use SSH even when `-Transport WinRM` is set for the Windows ones.
+
 ## Old Linux hosts
 
 RHEL Advanced Server 2.1 and RHEL 4 run sshd versions whose key exchange, host key,
@@ -243,6 +266,12 @@ and this file becomes redundant. Skip generating it with `-NoPalisadeListing`.
 | `-Port` | | port for targets with no `:port` of their own (default 22) |
 | `-KeyFile` | | SSH private key |
 | `-Platform` | | force `Windows` or `Linux` instead of probing |
+| `-Transport` | Windows | `Auto` (SSH probe, default), `SSH`, `WinRM` (→ WMI fallback), or `WMI` |
+| `-Credential` | Windows | local admin for WinRM/WMI; prompted if omitted |
+| `-UseSSL` | Windows | WinRM over HTTPS 5986 instead of HTTP 5985 |
+| `-WinRmPort` | Windows | override the WinRM port |
+| `-AddTrustedHost` | Windows | add each WinRM target to your WSMan TrustedHosts (opt-in) |
+| `-NoWmiFallback` | Windows | make `-Transport WinRM` strict — no WMI fallback |
 | `-OutputRoot` | | where evidence lands locally |
 | `-LegacyCrypto` | | offer the pre-modern SSH algorithms (RHEL 2.1 / RHEL 4) |
 | `-AcceptHostKeys` | | accept unknown host keys instead of refusing |

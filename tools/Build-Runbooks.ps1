@@ -253,6 +253,14 @@ function ConvertTo-Blocks {
             continue
         }
 
+        # sub-heading (###+). The caller consumes # and ## to split the document, so only
+        # ### and deeper reach here; render as a labelled sub-heading inside the section.
+        if ($line -match '^\s*(#{3,6})\s+(.*)$') {
+            [void]$out.Add('            <h4 class="subhead">' + (ConvertTo-Inline $Matches[2].Trim()) + '</h4>')
+            $i++
+            continue
+        }
+
         # blockquote / callout
         if ($line -match '^\s*>') {
             $buf = New-Object System.Collections.ArrayList
@@ -293,7 +301,8 @@ function ConvertTo-Blocks {
             [void]$buf.Add($Lines[$i].Trim()); $i++
         }
         if ($buf.Count) { [void]$out.Add('            <p>' + (ConvertTo-Inline ($buf -join ' ')) + '</p>') }
-        elseif ($i -lt $Lines.Count -and $Lines[$i].Trim() -and $Lines[$i] -notmatch '^\s*#') { $i++ }
+        else { $i++ }   # unconditional advance: a non-blank line no handler consumed must
+                        # never leave $i where it was, or the walker spins forever
     }
     return $out.ToArray()
 }

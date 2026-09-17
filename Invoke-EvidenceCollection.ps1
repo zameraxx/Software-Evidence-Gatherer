@@ -62,6 +62,41 @@
 .PARAMETER Platform
   Force every target to a platform instead of probing: Windows or Linux. Default Auto.
 
+.PARAMETER Transport
+  How to reach a WINDOWS target. Linux is always SSH regardless of this.
+    Auto   the SSH probe, as before - the default, so existing runs are unchanged
+    SSH    force SSH (Windows OpenSSH Server)
+    WinRM  PowerShell Remoting, falling back to WMI+SMB if WinRM cannot connect
+    WMI    WMI over DCOM plus the C$ admin share only, with no WinRM attempt
+  Use WinRM or WMI for Windows hosts that are not allowed to run SSH. Both authenticate
+  with -Credential as a LOCAL account on the target (there is no domain). On a standalone
+  host, only the built-in Administrator (RID 500) gets a full token over the network; any
+  other local admin gets a filtered token and an incomplete collection, which is reported
+  from the collector's own Elevated flag. In a -HostList, rows marked "linux" still go
+  over SSH even when -Transport is WinRM or WMI.
+
+.PARAMETER Credential
+  Credential for WinRM/WMI targets, as a PSCredential. Prompted for if omitted and not
+  -BatchMode. One credential applies to every WinRM/WMI target in the run. Give the user
+  name as HOSTNAME\Administrator or .\Administrator for a standalone target.
+
+.PARAMETER UseSSL
+  Use the HTTPS WinRM listener (5986) instead of HTTP (5985). HTTP still message-encrypts
+  the payload under Negotiate/NTLM, so it is not cleartext; use HTTPS only when a baseline
+  forbids the HTTP listener. Requires a certificate on each target's listener.
+
+.PARAMETER WinRmPort
+  Override the WinRM port. Default 5986 with -UseSSL, otherwise 5985.
+
+.PARAMETER AddTrustedHost
+  Add each WinRM target to this machine's WSMan TrustedHosts before connecting - which
+  NTLM to a non-domain host over HTTP requires. Off by default because it is a persistent
+  change to YOUR machine; without it an uncovered target fails with the exact command to
+  run. Ignored with -UseSSL.
+
+.PARAMETER NoWmiFallback
+  Make -Transport WinRM strict: fail instead of falling back to WMI+SMB.
+
 .PARAMETER OutputRoot
   Local directory to write evidence into. Defaults to %SystemDrive%\SWEvidence\<timestamp>
   - typically C:\SWEvidence\<timestamp>. That location is deliberate: outside this
@@ -166,11 +201,29 @@
 
   An ancient RHEL host, reachable only with the old crypto, sudo via password.
 
+.EXAMPLE
+  .\Invoke-EvidenceCollection.ps1 win-fs01 -Transport WinRM -AddTrustedHost
+
+  A standalone Windows host that cannot use SSH. Reached over WinRM (HTTP 5985, payload
+  still encrypted), falling back to WMI+SMB if WinRM is not listening. Prompts for the
+  local admin credential; use the built-in Administrator for a complete collection.
+
+.EXAMPLE
+  $c = Get-Credential .\Administrator
+  .\Invoke-EvidenceCollection.ps1 -HostList .\hosts.txt -Transport WinRM -Credential $c -AddTrustedHost
+
+  A fleet of standalone Windows hosts (plus any rows marked "linux", which still use SSH),
+  one credential for all of them, unattended-friendly.
+
 .NOTES
-  Needs the OpenSSH client (ssh.exe and scp.exe). It ships with Windows 10 1809+ and
-  Windows 11; if it is missing, add it with:
+  SSH transport needs the OpenSSH client (ssh.exe and scp.exe). It ships with Windows 10
+  1809+ and Windows 11; if it is missing, add it with:
 
     Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0
+
+  WinRM/WMI transport needs no extra client software - PowerShell Remoting, CIM/DCOM and
+  the C$ admin share are built into Windows. For WinRM, this machine's own WinRM client
+  service must be running (Start-Service WinRM if it is not).
 
   Elevation on the target is the collectors' business, not this script's. Each one
   detects whether it got what it needed and stamps its own output "COLLECTION
@@ -192,6 +245,37 @@ param(
 
     [ValidateSet('Auto', 'Windows', 'Linux')]
     [string]$Platform = 'Auto',
+
+    # How to reach a Windows target. Linux is always SSH regardless of this.
+    #   Auto  - SSH probe, as before (the default; does not change existing runs)
+    #   SSH   - force SSH (Windows OpenSSH Server)
+    #   WinRM - PowerShell Remoting, falling back to WMI+SMB if WinRM cannot connect
+    #   WMI   - WMI over DCOM + the C$ admin share only, no WinRM attempt
+    [ValidateSet('Auto', 'SSH', 'WinRM', 'WMI')]
+    [string]$Transport = 'Auto',
+
+    # Credential for WinRM / WMI Windows targets. Standalone (non-domain) targets always
+    # need one - it is a LOCAL account on the target. Prompted for if omitted and not
+    # -BatchMode. One credential applies to every WinRM/WMI target in the run.
+    [System.Management.Automation.PSCredential]$Credential,
+
+    # Use the HTTPS WinRM listener (5986) instead of HTTP (5985). HTTP still message-
+    # encrypts the payload under Negotiate/NTLM, so it is not cleartext; use HTTPS when a
+    # baseline forbids the HTTP listener outright. Needs a certificate on each target.
+    [switch]$UseSSL,
+
+    # Override the WinRM port. Default: 5986 with -UseSSL, else 5985.
+    [int]$WinRmPort = 0,
+
+    # Add each WinRM target to this machine's WSMan TrustedHosts before connecting. NTLM
+    # to a non-domain host over HTTP requires it. Off by default because it is a
+    # persistent change to YOUR machine's config; without it, an uncovered target fails
+    # with the exact command to run. Ignored with -UseSSL (the certificate validates the
+    # host instead).
+    [switch]$AddTrustedHost,
+
+    # Make -Transport WinRM strict: fail instead of falling back to WMI+SMB.
+    [switch]$NoWmiFallback,
 
     [string]$OutputRoot,
     [string]$Reference,
@@ -454,11 +538,15 @@ function New-Target {
         $host_ = $Matches['h']
         $prt   = [int]$Matches['p']
     }
-    # No fallback to $env:USERNAME. The account a collection ran as determines what the
-    # evidence could see, and it is recorded in the manifest and every transcript - so it
-    # is something the operator states, not something this script guesses from whoever
-    # happens to be logged into the machine driving it.
-    if (-not $user) {
+    # The SSH login account is required for an SSH target, but NOT for a WinRM/WMI one -
+    # there the account comes from -Credential, so a bare hostname is correct. A row
+    # marked "linux" is always SSH and always needs a user, whatever the global transport.
+    $usesSsh = ($PlatformHint -eq 'Linux') -or ($Transport -in @('Auto', 'SSH'))
+
+    # No fallback to $env:USERNAME on the SSH path. The account a collection ran as
+    # determines what the evidence could see, and it is recorded in the manifest and every
+    # transcript - so it is stated, not guessed from whoever is logged into this machine.
+    if ($usesSsh -and -not $user) {
         throw ("Target '$Spec' does not say which account to log in as. Write it as " +
                "'user@$host_', or pass -UserName for every target that omits one.")
     }
@@ -468,7 +556,7 @@ function New-Target {
         Host         = $host_
         User         = $user
         Port         = $prt
-        SshTarget    = "$user@$host_"
+        SshTarget    = $(if ($user) { "$user@$host_" } else { $host_ })
         PlatformHint = $PlatformHint
     }
 }
@@ -860,6 +948,26 @@ function Invoke-WindowsCollection {
 # to reproduce either shape locally: every filename is already stamped with host and
 # timestamp, so one flat directory per run never collides and is exactly what a
 # downstream tool wants to be pointed at.
+# Flatten every file under a local directory into the output root, logging each. Shared
+# by all three transports: whatever pulled the evidence back (scp for SSH, Copy-Item for
+# WinRM, the C$ share for WMI) drops it into a local scratch dir, then this lands it.
+function Move-EvidenceInto {
+    param([string]$SourceDir, [string]$Destination)
+    $files = @(Get-ChildItem -Path $SourceDir -Recurse -File)
+    if (-not $files.Count) {
+        Write-Bad 'The collector reported success but produced no files.'
+        return @()
+    }
+    $landed = New-Object System.Collections.ArrayList
+    foreach ($f in $files) {
+        $dest = Join-Path $Destination $f.Name
+        Move-Item -LiteralPath $f.FullName -Destination $dest -Force
+        [void]$landed.Add($dest)
+        Write-Ok "Retrieved $($f.Name) ($([math]::Round($f.Length / 1KB, 1)) KB)"
+    }
+    return $landed.ToArray()
+}
+
 function Receive-Evidence {
     param([hashtable]$Target, [string]$RemoteOut, [string]$Destination)
 
@@ -871,19 +979,7 @@ function Receive-Evidence {
             Write-Bad "Retrieval failed: $($r.Output)"
             return @()
         }
-        $files = @(Get-ChildItem -Path $staging -Recurse -File)
-        if (-not $files.Count) {
-            Write-Bad 'The collector reported success but produced no files.'
-            return @()
-        }
-        $landed = New-Object System.Collections.ArrayList
-        foreach ($f in $files) {
-            $dest = Join-Path $Destination $f.Name
-            Move-Item -LiteralPath $f.FullName -Destination $dest -Force
-            [void]$landed.Add($dest)
-            Write-Ok "Retrieved $($f.Name) ($([math]::Round($f.Length / 1KB, 1)) KB)"
-        }
-        return $landed.ToArray()
+        return Move-EvidenceInto -SourceDir $staging -Destination $Destination
     } finally {
         Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -910,6 +1006,282 @@ function Remove-Staging {
     }
     if ($r.ExitCode -ne 0) { Write-Warn "Could not remove the staging directory on the target; remove $Stage by hand." }
     else                   { Write-Step 'Staging directory removed from the target.' }
+}
+
+# ============================================================================
+# 8b. Windows remote transports - WinRM and WMI (for hosts that cannot use SSH)
+# ============================================================================
+#
+# These reach a Windows target the way native Windows management does, for
+# environments where SSH is not permitted. Both authenticate with the -Credential as a
+# LOCAL account on the target (there is no domain here), which brings in one behaviour
+# worth stating plainly:
+#
+#   On a standalone (workgroup) machine, a remote logon by a local administrator that is
+#   NOT the built-in Administrator (RID 500) is handed a FILTERED token - a standard-user
+#   token, not the full admin one. The collector then runs but cannot read the offline
+#   user hives or parts of HKLM, and stamps its own output COLLECTION INCOMPLETE. This is
+#   UAC remote token filtering and it is identical over WinRM and WMI; it is not a bug in
+#   either transport. Use the built-in Administrator for a complete collection. The
+#   registry setting that disables the filtering (LocalAccountTokenFilterPolicy=1) is
+#   itself a STIG finding, so this script never touches it - it reports the incomplete
+#   result instead, read from the collector's own Elevated flag like every other path.
+#
+# Unlike the SSH path, these two retrieve the evidence and clean up the target
+# themselves, then hand the loop the landed files in $result.Files with CleanedUp=$true.
+
+function Get-WinRmPort {
+    if ($WinRmPort -gt 0) { return $WinRmPort }
+    if ($UseSSL)          { return 5986 }
+    return 5985
+}
+
+# Is $HostName covered by this machine's WinRM TrustedHosts? Matches an exact entry, a
+# lone "*", and wildcard entries (10.0.0.*, *.lab) via -like.
+function Test-TrustedHostCovered {
+    param([string]$HostName)
+    $val = ''
+    try { $val = (Get-Item WSMan:\localhost\Client\TrustedHosts -ErrorAction Stop).Value } catch { return $false }
+    if (-not $val) { return $false }
+    foreach ($e in ($val -split ',')) {
+        $e = $e.Trim()
+        if ($e -and $HostName -like $e) { return $true }
+    }
+    return $false
+}
+
+# The WSMan client stack needs the WinRM service running on THIS machine even to act as
+# a client. Report clearly rather than fail cryptically inside New-PSSession.
+function Assert-WinRmClient {
+    try { Get-Item WSMan:\localhost\Client -ErrorAction Stop | Out-Null }
+    catch {
+        throw ("The WinRM client on this machine is not available (its service may be stopped). " +
+               "Run once, elevated:  Start-Service WinRM  - then retry.")
+    }
+}
+
+# --- WinRM (PowerShell Remoting) --------------------------------------------
+function Invoke-WinRmCollection {
+    param([hashtable]$Target, [string]$Stage)
+
+    $result = @{ Ok = $false; Note = ''; Privileged = $false; Files = $null; CleanedUp = $true
+                 ConnectFailed = $false; AbsStage = "C:\Windows\Temp\$Stage"
+                 RemoteOut = ''; SudoPrefix = ''; StdIn = $null }
+
+    $port = Get-WinRmPort
+    Write-Step ("WinRM to $($Target.Host) on port $port" + $(if ($UseSSL) { ' (HTTPS)' } else { '' }))
+
+    # The WSMan client stack needs this machine's own WinRM service running. Treat it as a
+    # connect failure, not a hard stop, so the run can still fall back to WMI+SMB.
+    try { Assert-WinRmClient }
+    catch {
+        $result.ConnectFailed = $true
+        $result.Note = "WinRM unavailable on this machine (Start-Service WinRM to use it): $($_.Exception.Message)"
+        Write-Bad $result.Note; return $result
+    }
+
+    # NTLM to a workgroup host over HTTP requires the target in this machine's TrustedHosts.
+    if (-not $UseSSL -and -not (Test-TrustedHostCovered $Target.Host)) {
+        if ($AddTrustedHost) {
+            try {
+                Set-Item WSMan:\localhost\Client\TrustedHosts -Value $Target.Host -Concatenate -Force -ErrorAction Stop
+                Write-Ok "Added $($Target.Host) to this machine's WinRM TrustedHosts."
+            } catch {
+                $result.Note = "Could not add $($Target.Host) to TrustedHosts: $($_.Exception.Message)"
+                Write-Bad $result.Note; return $result
+            }
+        } else {
+            $result.Note = ("$($Target.Host) is not in this machine's WinRM TrustedHosts, which NTLM over HTTP " +
+                            "requires for a non-domain target. Re-run with -AddTrustedHost, or run once: " +
+                            "Set-Item WSMan:\localhost\Client\TrustedHosts -Value '$($Target.Host)' -Concatenate -Force")
+            Write-Bad $result.Note; return $result
+        }
+    }
+
+    $so = New-PSSessionOption -OpenTimeout ($ConnectTimeout * 1000) -OperationTimeout 1800000 -CancelTimeout 15000
+    $sess = $null; $stageAbs = "C:\Windows\Temp\$Stage"; $stageCreated = $false
+    try {
+        $p = @{ ComputerName = $Target.Host; Port = $port; Credential = $script:WinCred
+                Authentication = 'Negotiate'; SessionOption = $so; ErrorAction = 'Stop' }
+        if ($UseSSL) { $p['UseSSL'] = $true }
+        try {
+            $sess = New-PSSession @p
+        } catch {
+            $result.ConnectFailed = $true
+            $result.Note = "WinRM connect failed: $($_.Exception.Message)"
+            Write-Bad $result.Note; return $result
+        }
+
+        $ri = Invoke-Command -Session $sess -ErrorAction Stop -ScriptBlock {
+            @{ SystemRoot = $env:SystemRoot; Computer = $env:COMPUTERNAME
+               OS = (Get-WmiObject Win32_OperatingSystem).Caption }
+        }
+        Write-Ok "Connected: $($ri.Computer) - $($ri.OS)"
+        if ($ri.SystemRoot) { $stageAbs = "$($ri.SystemRoot)\Temp\$Stage" }
+        $result.AbsStage = $stageAbs
+
+        # WinRM implies PowerShell on the target, so the PS collector always applies here.
+        Invoke-Command -Session $sess -ErrorAction Stop -ArgumentList $stageAbs -ScriptBlock {
+            param($s) New-Item -ItemType Directory -Path "$s\out" -Force | Out-Null
+        }
+        $stageCreated = $true
+
+        $ps1 = "$stageAbs\Get-SoftwareEvidence.ps1"
+        Copy-Item -ToSession $sess -Path $WindowsCollector -Destination $ps1 -Force -ErrorAction Stop
+
+        Write-Step 'Collecting (this can take a while - the executable scan is the slow part)...'
+        $out = Invoke-Command -Session $sess -ErrorAction Stop -ArgumentList $ps1, "$stageAbs\out", [bool]$NoExe -ScriptBlock {
+            param($ps1, $outDir, $noexe)
+            $a = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $ps1, '-OutRoot', $outDir)
+            if ($noexe) { $a += '-NoExe' }
+            & powershell.exe @a 2>&1 | Out-String
+        }
+        Write-Line ((($out -split "`r?`n") | ForEach-Object { '    | ' + $_ }) -join "`n")
+        if ($out -match 'NOT ELEVATED') {
+            Write-Warn ('The collector reported it was not elevated - a filtered token, expected for a local ' +
+                        'admin that is not the built-in Administrator on a standalone target. The collection ' +
+                        'is partial; use the built-in Administrator for a complete one.')
+        }
+
+        $localStage = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
+        New-Item -ItemType Directory -Path $localStage -Force | Out-Null
+        try {
+            Copy-Item -FromSession $sess -Path "$stageAbs\out\*" -Destination $localStage -Recurse -Force -ErrorAction Stop
+            $result.Files = @(Move-EvidenceInto -SourceDir $localStage -Destination $OutputRoot)
+        } finally {
+            Remove-Item -LiteralPath $localStage -Recurse -Force -ErrorAction SilentlyContinue
+        }
+
+        $result.Ok = $true
+        return $result
+    } catch {
+        if (-not $result.Note) { $result.Note = "WinRM collection failed: $($_.Exception.Message)" }
+        Write-Bad $result.Note; return $result
+    } finally {
+        if ($sess -and $stageCreated) {
+            if (-not $KeepRemote) {
+                if (Test-StagingName $Stage) {
+                    Invoke-Command -Session $sess -ArgumentList $stageAbs -ErrorAction SilentlyContinue -ScriptBlock {
+                        param($s) if (Test-Path $s) { Remove-Item -Recurse -Force $s }
+                    }
+                    Write-Step 'Staging directory removed from the target.'
+                } else {
+                    Write-Warn "Refusing to remove '$Stage' - not a staging name this run created."
+                }
+            } else {
+                Write-Step "Staging directory left on the target at $stageAbs (-KeepRemote)."
+            }
+        }
+        if ($sess) { Remove-PSSession $sess -ErrorAction SilentlyContinue }
+    }
+}
+
+# --- WMI over DCOM + the C$ admin share -------------------------------------
+# The genuine WinRM-independent fallback: CIM over DCOM starts the collector with
+# Win32_Process.Create, and the C$ admin share moves the files. CIM over WSMan would just
+# be WinRM again, so this uses -Protocol Dcom on purpose. There is no live output channel
+# over WMI, so the run is launched and polled for exit; whether it was privileged is read
+# back from the evidence CSV afterwards, the same Elevated flag every other path uses.
+function Invoke-WmiCollection {
+    param([hashtable]$Target, [string]$Stage)
+
+    $result = @{ Ok = $false; Note = ''; Privileged = $false; Files = $null; CleanedUp = $true
+                 ConnectFailed = $false; AbsStage = "C:\Windows\Temp\$Stage"
+                 RemoteOut = ''; SudoPrefix = ''; StdIn = $null }
+
+    Write-Step "WMI over DCOM to $($Target.Host) (C`$ admin share + Win32_Process.Create)"
+
+    $drive = $null; $cim = $null; $shareRoot = $null; $stageCreated = $false
+    $stageWin = "C:\Windows\Temp\$Stage"
+    try {
+        # The admin share needs SMB reachable, the share enabled, and a FULL-token admin.
+        # A filtered token cannot open C$, so that failure also surfaces right here.
+        try {
+            $driveName = 'SWEV' + ([guid]::NewGuid().ToString('n').Substring(0, 6))
+            $drive = New-PSDrive -Name $driveName -PSProvider FileSystem -Root "\\$($Target.Host)\C`$" `
+                                 -Credential $script:WinCred -ErrorAction Stop
+        } catch {
+            $result.ConnectFailed = $true
+            $result.Note = "Could not open \\$($Target.Host)\C`$ (SMB blocked, share disabled, or a filtered/denied token): $($_.Exception.Message)"
+            Write-Bad $result.Note; return $result
+        }
+        $shareRoot  = "$($drive.Name):"
+        $stageShare = "$shareRoot\Windows\Temp\$Stage"
+        New-Item -ItemType Directory -Path "$stageShare\out" -Force -ErrorAction Stop | Out-Null
+        $stageCreated = $true
+
+        # PowerShell if the target has it, else the legacy VBScript collector.
+        if (Test-Path -LiteralPath "$shareRoot\Windows\System32\WindowsPowerShell\v1.0\powershell.exe") {
+            Copy-Item -LiteralPath $WindowsCollector -Destination "$stageShare\Get-SoftwareEvidence.ps1" -Force -ErrorAction Stop
+            $cmdLine = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$stageWin\Get-SoftwareEvidence.ps1`" -OutRoot `"$stageWin\out`""
+            if ($NoExe) { $cmdLine += ' -NoExe' }
+            Write-Ok 'PowerShell present on the target - using Get-SoftwareEvidence.ps1.'
+        } else {
+            Copy-Item -LiteralPath $LegacyCollector -Destination "$stageShare\Get-SoftwareEvidence-Legacy.vbs" -Force -ErrorAction Stop
+            $cmdLine = "cscript.exe //nologo `"$stageWin\Get-SoftwareEvidence-Legacy.vbs`" /out:`"$stageWin\out`""
+            if ($NoExe) { $cmdLine += ' /noexe' }
+            Write-Warn 'No PowerShell on the target - using the legacy VBScript collector.'
+        }
+
+        try {
+            $cim = New-CimSession -ComputerName $Target.Host -Credential $script:WinCred `
+                                  -SessionOption (New-CimSessionOption -Protocol Dcom) -ErrorAction Stop
+        } catch {
+            $result.ConnectFailed = $true
+            $result.Note = "DCOM/WMI connect failed (RPC blocked or access denied): $($_.Exception.Message)"
+            Write-Bad $result.Note; return $result
+        }
+
+        Write-Step 'Launching the collector (Win32_Process.Create) - no live output over WMI; polling for exit...'
+        $inv = Invoke-CimMethod -CimSession $cim -ClassName Win32_Process -MethodName Create `
+                                -Arguments @{ CommandLine = "cmd.exe /c $cmdLine" } -ErrorAction Stop
+        if ($inv.ReturnValue -ne 0) {
+            throw "Win32_Process.Create returned $($inv.ReturnValue) (0=OK, 2=access denied, 3=insufficient privilege, 9=path not found, 21=invalid parameter)."
+        }
+        $procId = [int]$inv.ProcessId
+
+        $deadline = (Get-Date).AddMinutes(30)
+        while ($true) {
+            Start-Sleep -Seconds 3
+            $running = Get-CimInstance -CimSession $cim -ClassName Win32_Process -Filter "ProcessId=$procId" -ErrorAction SilentlyContinue
+            if (-not $running) { break }
+            if ((Get-Date) -gt $deadline) { throw 'Timed out after 30 minutes waiting for the collector to finish.' }
+        }
+
+        $localStage = Join-Path ([IO.Path]::GetTempPath()) ([IO.Path]::GetRandomFileName())
+        New-Item -ItemType Directory -Path $localStage -Force | Out-Null
+        try {
+            Copy-Item -LiteralPath "$stageShare\out" -Destination $localStage -Recurse -Force -ErrorAction Stop
+            $result.Files = @(Move-EvidenceInto -SourceDir $localStage -Destination $OutputRoot)
+        } finally {
+            Remove-Item -LiteralPath $localStage -Recurse -Force -ErrorAction SilentlyContinue
+        }
+
+        $result.Ok = $true
+        return $result
+    } catch {
+        if (-not $result.Note) { $result.Note = "WMI/DCOM collection failed: $($_.Exception.Message)" }
+        Write-Bad $result.Note; return $result
+    } finally {
+        if ($cim) { Remove-CimSession $cim -ErrorAction SilentlyContinue }
+        if ($stageCreated -and $shareRoot) {
+            if (-not $KeepRemote) {
+                if (Test-StagingName $Stage) {
+                    try {
+                        Remove-Item -LiteralPath "$shareRoot\Windows\Temp\$Stage" -Recurse -Force -ErrorAction Stop
+                        Write-Step 'Staging directory removed from the target.'
+                    } catch {
+                        Write-Warn "Could not remove staging on the target; remove $stageWin by hand."
+                    }
+                } else {
+                    Write-Warn "Refusing to remove '$Stage' - not a staging name this run created."
+                }
+            } else {
+                Write-Step "Staging directory left on the target at $stageWin (-KeepRemote)."
+            }
+        }
+        if ($drive) { Remove-PSDrive -Name $drive.Name -Force -ErrorAction SilentlyContinue }
+    }
 }
 
 # ============================================================================
@@ -1099,8 +1471,6 @@ function Get-EvidenceSummary {
 # 10. main
 # ============================================================================
 
-Resolve-SshTools
-
 foreach ($c in @($LinuxCollector, $WindowsCollector, $LegacyCollector)) {
     if (-not (Test-Path -LiteralPath $c)) {
         throw ("Collector missing: $c`nThis script expects the collectors/ directory to sit next to it. " +
@@ -1109,6 +1479,23 @@ foreach ($c in @($LinuxCollector, $WindowsCollector, $LegacyCollector)) {
 }
 
 $targets = Get-TargetList
+
+# SSH tooling is only required if SSH will actually run: Auto/SSH transport, or any
+# Linux-hinted target (Linux is always SSH). A pure WinRM/WMI run against Windows hosts
+# needs no ssh.exe at all - which is the entire reason those transports exist.
+$sshMaybeNeeded = ($Transport -in @('Auto', 'SSH')) -or
+                  @($targets | Where-Object { $_.PlatformHint -eq 'Linux' }).Count -gt 0
+if ($sshMaybeNeeded) { Resolve-SshTools }
+
+# WinRM / WMI reach a local account on the target, so they need a credential. Resolve it
+# once for the whole run. Prompt only when interactive; -BatchMode must supply it.
+$script:WinCred = $Credential
+if ($Transport -in @('WinRM', 'WMI') -and -not $script:WinCred) {
+    if ($BatchMode) { throw "-Transport $Transport needs -Credential in -BatchMode (it cannot prompt)." }
+    $script:WinCred = Get-Credential -Message (
+        "Local admin account on the $Transport target(s). On a standalone host use the built-in " +
+        "Administrator for a complete collection - e.g.  HOSTNAME\Administrator  or  .\Administrator.")
+}
 
 # A hardened build can restrict the drive root. Rather than refuse to collect over a
 # directory-creation failure, fall back to the profile and say so - the path is printed
@@ -1133,8 +1520,16 @@ New-Item -ItemType Directory -Path $logDir -Force | Out-Null
 Write-Head "Software Evidence Gatherer - $($targets.Count) target(s)"
 Write-Line "  Output    : $OutputRoot"
 Write-Line "  Transcripts: $logDir"
-if ($LegacyCrypto)    { Write-Line '  Legacy SSH algorithms enabled.' }
-if (-not $AcceptHostKeys) { Write-Line '  Unknown host keys will be refused (-AcceptHostKeys to accept them).' }
+$transportNote = switch ($Transport) {
+    'WinRM' { "WinRM$(if($UseSSL){' (HTTPS 5986)'}else{' (HTTP 5985)'})$(if($NoWmiFallback){''}else{', WMI+SMB fallback'})" }
+    'WMI'   { 'WMI over DCOM + C$ admin share' }
+    'SSH'   { 'SSH (forced)' }
+    default { 'SSH (auto-probe)' }
+}
+Write-Line "  Windows via: $transportNote"
+if ($script:WinCred) { Write-Line "  Credential : $($script:WinCred.UserName)" }
+if ($LegacyCrypto -and $sshMaybeNeeded)    { Write-Line '  Legacy SSH algorithms enabled.' }
+if ($sshMaybeNeeded -and -not $AcceptHostKeys) { Write-Line '  Unknown SSH host keys will be refused (-AcceptHostKeys to accept them).' }
 
 $manifest    = New-Object System.Collections.ArrayList
 $allEvidence = New-Object System.Collections.ArrayList
@@ -1146,21 +1541,29 @@ foreach ($t in $targets) {
     $status         = 'Failed'
     $note           = ''
     $platformName   = 'Unknown'
+    $transportUsed  = ''
     $detail         = ''
     $files          = @()
     $summary        = @{ Records = 0; Products = 0; Privileged = $null; HostName = '' }
     $res            = $null
 
-    Write-Head "$($t.SshTarget)  (port $($t.Port))"
+    Write-Head $t.Spec
 
     try {
-        if ($t.PlatformHint -eq 'Windows') {
+        $forceLinux = ($t.PlatformHint -eq 'Linux')
+
+        if (-not $forceLinux -and $Transport -in @('WinRM', 'WMI')) {
+            # WinRM/WMI are Windows-only, so a target on one of them is Windows by
+            # definition - no SSH probe (there may be no SSH here to probe with).
+            $info = @{ Platform = 'Windows'; Supported = $true; Uid = ''; Release = ''
+                       OsMajor = 0; Kernel = ''; HostName = ''; Detail = "reached over $Transport" }
+        } elseif ($t.PlatformHint -eq 'Windows') {
             $info = @{ Platform = 'Windows'; Supported = $true; Uid = ''; Release = ''
                        OsMajor = 0; Kernel = ''; HostName = ''
                        Detail = 'forced to Windows, not probed' }
         } else {
             $info = Get-TargetPlatform -Target $t
-            if ($t.PlatformHint -eq 'Linux' -and $info.Platform -ne 'Linux') {
+            if ($forceLinux -and $info.Platform -ne 'Linux') {
                 Write-Warn "The probe did not identify this as Linux ($($info.Detail)), but it was forced to Linux - continuing."
                 $info.Platform  = 'Linux'
                 $info.Supported = $true
@@ -1169,16 +1572,39 @@ foreach ($t in $targets) {
         $platformName = $info.Platform
         $detail       = $info.Detail
 
-        switch ($info.Platform) {
-            'Linux'   { $res = Invoke-LinuxCollection   -Target $t -Info $info -Stage $stage }
-            'Windows' { $res = Invoke-WindowsCollection -Target $t -Info $info -Stage $stage }
-            default   { throw "Could not determine the target's operating system. $($info.Detail)" }
+        if ($info.Platform -eq 'Linux') {
+            $transportUsed = 'SSH'
+            $res = Invoke-LinuxCollection -Target $t -Info $info -Stage $stage
+        } elseif ($info.Platform -eq 'Windows') {
+            # Linux is always SSH; a Windows target follows -Transport (Auto means SSH).
+            $winTransport = if ($forceLinux -or $Transport -eq 'Auto') { 'SSH' } else { $Transport }
+            switch ($winTransport) {
+                'SSH'   { $transportUsed = 'SSH';   $res = Invoke-WindowsCollection -Target $t -Info $info -Stage $stage }
+                'WMI'   { $transportUsed = 'WMI';   $res = Invoke-WmiCollection     -Target $t -Stage $stage }
+                'WinRM' {
+                    $transportUsed = 'WinRM'
+                    $res = Invoke-WinRmCollection -Target $t -Stage $stage
+                    if (-not $res.Ok -and $res.ConnectFailed -and -not $NoWmiFallback) {
+                        Write-Warn 'WinRM could not connect - falling back to WMI+SMB.'
+                        $stage = New-StagingName
+                        $transportUsed = 'WMI (WinRM fell back)'
+                        $res = Invoke-WmiCollection -Target $t -Stage $stage
+                    }
+                }
+            }
+        } else {
+            throw "Could not determine the target's operating system. $($info.Detail)"
         }
 
         if ($res.Ok) {
-            Write-Step 'Retrieving evidence...'
-            # @() so a single retrieved file does not unroll into a bare string
-            $files = @(Receive-Evidence -Target $t -RemoteOut $res.RemoteOut -Destination $OutputRoot)
+            if ($null -ne $res.Files) {
+                # WinRM/WMI retrieve into the output root themselves; SSH is pulled here.
+                $files = @($res.Files)
+            } else {
+                Write-Step 'Retrieving evidence...'
+                # @() so a single retrieved file does not unroll into a bare string
+                $files = @(Receive-Evidence -Target $t -RemoteOut $res.RemoteOut -Destination $OutputRoot)
+            }
             if ($files.Count) {
                 foreach ($f in $files) { [void]$allEvidence.Add($f) }
                 $summary = Get-EvidenceSummary -Files $files
@@ -1200,14 +1626,16 @@ foreach ($t in $targets) {
     # Cleanup runs even when the collection failed - a staging directory was very likely
     # created before whatever went wrong, and leaving it behind on someone's server is
     # not this script's to do.
-    if ($res -and -not $KeepRemote) {
+    # WinRM/WMI clean up (or honour -KeepRemote) inside their own functions and set
+    # CleanedUp; only the SSH path is cleaned here.
+    if ($res -and -not $res.CleanedUp -and -not $KeepRemote) {
         try {
             Remove-Staging -Target $t -Stage $stage -PlatformName $platformName `
                            -SudoPrefix $res.SudoPrefix -StdIn $res.StdIn
         } catch {
             Write-Warn "Cleanup failed: $($_.Exception.Message). Remove $stage from the target by hand."
         }
-    } elseif ($res -and $KeepRemote) {
+    } elseif ($res -and -not $res.CleanedUp -and $KeepRemote) {
         Write-Step "Staging directory left on the target at $($res.AbsStage) (-KeepRemote)."
     }
 
@@ -1227,6 +1655,7 @@ foreach ($t in $targets) {
         SshTarget    = $t.SshTarget
         Port         = $t.Port
         Platform     = $platformName
+        Transport    = $transportUsed
         DetectedAs   = $detail
         HostName     = $summary.HostName
         Status       = $status

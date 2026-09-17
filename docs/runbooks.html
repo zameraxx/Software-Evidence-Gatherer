@@ -320,6 +320,16 @@
 
   .lede { font-size: 1.02rem; color: var(--ink-mid); }
 
+  h4.subhead {
+    font-family: Archivo, "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: .96rem;
+    font-weight: 700;
+    letter-spacing: .01em;
+    color: var(--ink);
+    margin: 22px 0 10px;
+  }
+  h4.subhead:first-child { margin-top: 4px; }
+
   /* ---- reference ----------------------------------------------------- */
   .ref-divider {
     display: flex;
@@ -578,6 +588,10 @@ Set-Service -Name sshd -StartupType Automatic</pre>
               <span class="tag">Undoing this later</span>
               <p>everything in this step persists after the collection ends. <a href="Target-Host-Restoration.md">Target-Host-Restoration.md</a> walks back the SSH server, the admin rights and the key — and says how to tell what was already there.</p>
             </div>
+            <div class="note">
+              <span class="tag">Not allowed to use SSH on Windows here?</span>
+              <p>Reach the host over WinRM or WMI instead — see <a href="#win-reaching-windows-without-ssh">Reaching Windows without SSH</a> in the reference. The other steps still apply; only how you connect changes.</p>
+            </div>
             <div class="note warn">
               <span class="tag">Windows 2000, XP, or Server 2003?</span>
               <p>They have no SSH server. Skip to <a href="#win-old-windows-2000--xp--2003">Old Windows</a> at the bottom.</p>
@@ -676,6 +690,53 @@ Set-Service -Name sshd -StartupType Automatic</pre>
               </table>
             </div>
             <p>Full list: <code>Get-Help .\Invoke-EvidenceCollection.ps1 -Full</code></p>
+          </div>
+        </section>
+
+        <section class="refsec">
+          <h3 id="win-reaching-windows-without-ssh">Reaching Windows without SSH</h3>
+          <div class="body">
+            <p>Some environments don't permit SSH on Windows. Reach those hosts over <strong>WinRM</strong> (PowerShell Remoting), which automatically falls back to <strong>WMI + the C$ admin share</strong> if WinRM isn't listening. Both are built into Windows — nothing extra on your machine.</p>
+            <p>Everything else in this runbook still applies; only how you connect changes.</p>
+            <h4 class="subhead">On the target: enable WinRM (once per host)</h4>
+            <p>In an elevated PowerShell on the target:</p>
+            <div class="cmd">
+              <div class="cmd-head"><span>PowerShell - on the target, elevated</span><button class="copy" type="button">Copy</button></div>
+<pre>Enable-PSRemoting -Force -SkipNetworkProfileCheck</pre>
+            </div>
+            <p><code>-SkipNetworkProfileCheck</code> matters on a standalone host: if its network is set to <strong>Public</strong>, <code>Enable-PSRemoting</code> otherwise refuses to open the firewall. The WMI fallback usually needs nothing enabled — SMB and the C$ share are on by default.</p>
+            <h4 class="subhead">The account decides whether the collection is complete</h4>
+            <p>This is the one thing to get right. With no domain you authenticate as a <strong>local</strong> account, and Windows filters the network token of a local admin:</p>
+            <div class="tablewrap">
+              <table>
+                <thead><tr><th>Account you connect as</th><th>Token</th><th>Result</th></tr></thead>
+                <tbody>
+                  <tr><td>Built-in <strong>Administrator</strong> (RID 500)</td><td>Full</td><td>Complete</td></tr>
+                  <tr><td>Any other local admin</td><td>Filtered (standard user)</td><td>Runs, but <code>Partial</code> / <code>COLLECTION INCOMPLETE</code></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p>Use the built-in Administrator for a complete collection. The registry switch that lifts the filtering (<code>LocalAccountTokenFilterPolicy=1</code>) is itself a STIG finding, so the script never sets it — it reports the incomplete result instead, the same way it does for an unelevated SSH run.</p>
+            <h4 class="subhead">On your machine: trust the host, then run</h4>
+            <p>NTLM to a non-domain host over HTTP needs the target in your WinRM TrustedHosts. <code>-AddTrustedHost</code> adds it for you — it's a change to <em>your</em> machine, so it's opt-in:</p>
+            <div class="cmd">
+              <div class="cmd-head"><span>PowerShell - your machine</span><button class="copy" type="button">Copy</button></div>
+<pre>.\Invoke-EvidenceCollection.ps1 win-fs01 -Transport WinRM -AddTrustedHost</pre>
+            </div>
+            <p>You're prompted for the credential; enter it as <code>win-fs01\Administrator</code> or <code>.\Administrator</code>. For many hosts, list them and pass <code>-Credential</code> once:</p>
+            <div class="cmd">
+              <div class="cmd-head"><span>PowerShell - your machine</span><button class="copy" type="button">Copy</button></div>
+<pre>$c = Get-Credential .\Administrator
+.\Invoke-EvidenceCollection.ps1 -HostList .\hosts.txt -Transport WinRM -Credential $c -AddTrustedHost</pre>
+            </div>
+            <p>The manifest's <code>Transport</code> column records how each host was actually reached — <code>WinRM</code>, <code>WMI</code>, or <code>WMI (WinRM fell back)</code>.</p>
+            <h4 class="subhead">Notes</h4>
+            <ul>
+              <li><strong>HTTP 5985 is not cleartext.</strong> Under Negotiate/NTLM the payload is message-encrypted. If your baseline forbids the HTTP listener even so, set up an HTTPS listener (5986) on each target and add <code>-UseSSL</code>.</li>
+              <li><strong>WMI only:</strong> <code>-Transport WMI</code> skips WinRM entirely. It needs SMB (445), RPC (135 plus the dynamic range), and the C$ share reachable from your workstation. If your ACAS scans already credential these hosts, that path is open from the scanner — confirm it's also open from your machine.</li>
+              <li><strong>This machine needs its own WinRM client service running</strong> for <code>-Transport WinRM</code> (<code>Start-Service WinRM</code>). If it's stopped, the run falls back to WMI on its own.</li>
+              <li><strong>Undo:</strong> <a href="Target-Host-Restoration.md">Target-Host-Restoration.md</a> covers turning WinRM back off.</li>
+            </ul>
           </div>
         </section>
 

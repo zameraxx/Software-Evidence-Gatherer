@@ -56,6 +56,11 @@ read the registry hives of users who aren't logged on.
 > [Target-Host-Restoration.md](Target-Host-Restoration.md) walks back the SSH server, the
 > admin rights and the key — and says how to tell what was already there.
 
+> [!NOTE]
+> **Not allowed to use SSH on Windows here?** Reach the host over WinRM or WMI instead —
+> see [Reaching Windows without SSH](#reaching-windows-without-ssh) in the reference. The
+> other steps still apply; only how you connect changes.
+
 > [!WARNING]
 > **Windows 2000, XP, or Server 2003?** They have no SSH server. Skip to
 > [Old Windows](#old-windows-2000--xp--2003) at the bottom.
@@ -147,6 +152,75 @@ Add any of these to the Step 4 command.
 | `-Platform Windows` | Skip OS detection |
 
 Full list: `Get-Help .\Invoke-EvidenceCollection.ps1 -Full`
+
+## Reaching Windows without SSH
+
+Some environments don't permit SSH on Windows. Reach those hosts over **WinRM**
+(PowerShell Remoting), which automatically falls back to **WMI + the C$ admin share** if
+WinRM isn't listening. Both are built into Windows — nothing extra on your machine.
+
+Everything else in this runbook still applies; only how you connect changes.
+
+### On the target: enable WinRM (once per host)
+
+In an elevated PowerShell on the target:
+
+```powershell PowerShell - on the target, elevated
+Enable-PSRemoting -Force -SkipNetworkProfileCheck
+```
+
+`-SkipNetworkProfileCheck` matters on a standalone host: if its network is set to
+**Public**, `Enable-PSRemoting` otherwise refuses to open the firewall. The WMI fallback
+usually needs nothing enabled — SMB and the C$ share are on by default.
+
+### The account decides whether the collection is complete
+
+This is the one thing to get right. With no domain you authenticate as a **local**
+account, and Windows filters the network token of a local admin:
+
+| Account you connect as | Token | Result |
+|---|---|---|
+| Built-in **Administrator** (RID 500) | Full | Complete |
+| Any other local admin | Filtered (standard user) | Runs, but `Partial` / `COLLECTION INCOMPLETE` |
+
+Use the built-in Administrator for a complete collection. The registry switch that lifts
+the filtering (`LocalAccountTokenFilterPolicy=1`) is itself a STIG finding, so the script
+never sets it — it reports the incomplete result instead, the same way it does for an
+unelevated SSH run.
+
+### On your machine: trust the host, then run
+
+NTLM to a non-domain host over HTTP needs the target in your WinRM TrustedHosts.
+`-AddTrustedHost` adds it for you — it's a change to *your* machine, so it's opt-in:
+
+```powershell PowerShell - your machine
+.\Invoke-EvidenceCollection.ps1 win-fs01 -Transport WinRM -AddTrustedHost
+```
+
+You're prompted for the credential; enter it as `win-fs01\Administrator` or
+`.\Administrator`. For many hosts, list them and pass `-Credential` once:
+
+```powershell PowerShell - your machine
+$c = Get-Credential .\Administrator
+.\Invoke-EvidenceCollection.ps1 -HostList .\hosts.txt -Transport WinRM -Credential $c -AddTrustedHost
+```
+
+The manifest's `Transport` column records how each host was actually reached — `WinRM`,
+`WMI`, or `WMI (WinRM fell back)`.
+
+### Notes
+
+- **HTTP 5985 is not cleartext.** Under Negotiate/NTLM the payload is message-encrypted.
+  If your baseline forbids the HTTP listener even so, set up an HTTPS listener (5986) on
+  each target and add `-UseSSL`.
+- **WMI only:** `-Transport WMI` skips WinRM entirely. It needs SMB (445), RPC (135 plus
+  the dynamic range), and the C$ share reachable from your workstation. If your ACAS
+  scans already credential these hosts, that path is open from the scanner — confirm it's
+  also open from your machine.
+- **This machine needs its own WinRM client service running** for `-Transport WinRM`
+  (`Start-Service WinRM`). If it's stopped, the run falls back to WMI on its own.
+- **Undo:** [Target-Host-Restoration.md](Target-Host-Restoration.md) covers turning WinRM
+  back off.
 
 ## Collecting from many hosts
 
